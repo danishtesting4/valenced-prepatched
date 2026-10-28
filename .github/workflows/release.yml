@@ -25,6 +25,8 @@ env:
   DISCORD_MIRROR: 'https://proxy.vd.ushie.dev'
   # Architectures to build (arm64_v8a = most phones, armeabi_v7a = older devices)
   ARCHES: '["arm64_v8a", "armeabi_v7a"]'
+  # Java 21 required by LSPatch classes in the Valenced bundle
+  JAVA_VERSION: '21'
 
 jobs:
   build-and-release:
@@ -40,6 +42,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Install Reseam CLI
         run: |
@@ -74,11 +82,17 @@ jobs:
           echo "Downloaded Valenced assets:"
           ls -la downloads/valenced/
 
+      - name: Verify bundle
+        run: |
+          echo "Verifying Valenced patch bundle..."
+          ./reseam bundle list downloads/valenced/valenced.reseam
+
       - name: Generate signing key
         run: |
           mkdir -p keys
           echo "Generating signing key..."
           ./reseam bundle keygen --out keys/valenced
+          echo "Signing key generated:"
           ls -la keys/
 
       - name: Patch Discord
@@ -103,30 +117,26 @@ jobs:
           echo "Patched APKs:"
           ls -la output/
 
-      - name: Verify output
-        run: |
-          if [ -z "$(find output/ -name '*.apk' -print -quit)" ]; then
-            echo "Error: No APKs were produced!"
-            exit 1
-          fi
-
       - name: Create release asset
         run: |
-          # Find the base APK (it will be named something like base-arm64_v8a-patched.apk or base-patched.apk)
-          BASE_APK=$(find output/ -name "base*" -name "*.apk" | head -1)
-          echo "Base APK: ${BASE_APK}"
-          
-          # Get the filename without directory
-          FILENAME=$(basename "${BASE_APK}")
-          echo "Filename: ${FILENAME}"
-          
-          # Create a nicely named output file
+          # Find the base APK (output is split APKs, base is the main one)
           ARCH_PREFIX="${{ matrix.arch }}"
-          OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH_PREFIX}.apk"
-          cp "${BASE_APK}" "${OUTPUT_NAME}"
+          VALENCE_VERSION="${VALENCE_VERSION}"
           
-          echo "Created: ${OUTPUT_NAME}"
-          ls -la "${OUTPUT_NAME}"
+          # For split APK output, the base APK is named base-arm64_v8a-patched.apk or similar
+          BASE_APK=$(find output/ -name "base*${ARCH_PREFIX}*.apk" | head -1)
+          if [ -z "$BASE_APK" ]; then
+            BASE_APK=$(find output/ -name "base*.apk" | head -1)
+          fi
+          if [ -z "$BASE_APK" ]; then
+            echo "Error: No base APK found in output!"
+            ls -la output/
+            exit 1
+          fi
+          
+          OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH_PREFIX}.apk"
+          cp "$BASE_APK" "$OUTPUT_NAME"
+          ls -la "$OUTPUT_NAME"
 
       - name: Upload release asset
         env:
@@ -135,9 +145,9 @@ jobs:
           OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${{ matrix.arch }}.apk"
           TAG_NAME="${{ github.event.release.tag_name }}"
           
-          if [ -z "${TAG_NAME}" ]; then
-            TAG_NAME="latest"
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME="${{ github.ref_name }}"
           fi
           
           echo "Uploading ${OUTPUT_NAME} to release ${TAG_NAME}..."
-          gh release upload "${TAG_NAME}" "${OUTPUT_NAME}" --clobber
+          gh release upload "$TAG_NAME" "$OUTPUT_NAME" --clobber
