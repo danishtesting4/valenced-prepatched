@@ -175,12 +175,20 @@ docker run --rm -v $(pwd)/output:/output valenced-prepatched
 
 ## GitHub Actions
 
-This repo has two workflows:
+This repo has a single workflow (`.github/workflows/build.yml`) that handles both CI builds and release publishing:
 
-| Workflow | Trigger | Description |
-|----------|---------|-------------|
-| **Build** | Push/PR | Validates the build process, produces split APK artifacts |
-| **Release** | `workflow_dispatch` or GitHub Release | Creates a release archive with all APKs and signing keys |
+| Trigger | Description |
+|---------|-------------|
+| **Push to `main`** | Runs CI build and uploads artifacts for verification |
+| **Pull request** | Runs CI build to validate changes |
+| **Release published** | Automatically builds and uploads pre-patched APKs to the release |
+| **Manual dispatch** | Can be triggered manually with optional `publish` flag |
+
+When a GitHub Release is published, the workflow automatically:
+1. Downloads Discord APKs and Valenced assets
+2. Patches Discord with Valenced using Reseam CLI
+3. Packages the result into a ZIP archive with signing keys
+4. Uploads the archive to the release
 
 ## Updating
 
