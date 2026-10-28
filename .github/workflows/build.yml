@@ -1,10 +1,12 @@
-name: Build
+name: Build & Publish
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       arch:
@@ -16,28 +18,26 @@ on:
           - all
           - arm64_v8a
           - armeabi_v7a
+      publish:
+        description: "Upload to latest release"
+        required: false
+        default: "false"
+        type: boolean
 
 permissions:
   contents: read
 
 env:
-  # Valenced release to use
   VALENCE_VERSION: '1.2.3'
-  # Discord version pinned by Valenced 1.2.3
-  # From valenced-core: "com.discord"("352.6 - Alpha") => versionCode 352206
   DISCORD_VERSION_CODE: '352206'
-  # Valenced's patch bundle public key (from valenced-manager gradle.properties)
   BUNDLE_PUBLIC_KEY: 'db74a921941576bf70cc1c2777741fb202131a76758ffd3ffcc785f9e76ff119'
-  # Reseam CLI version (keep in sync with Valenced's android/patches/settings.gradle.kts)
   RESEAM_VERSION: '0.30.1'
-  # Discord download mirror (from valenced-manager Mirror enum)
   DISCORD_MIRROR: 'https://proxy.vd.ushie.dev'
-  # Java 21 required by LSPatch classes in the Valenced bundle (class file 65.0)
   JAVA_VERSION: '21'
 
 jobs:
   build:
-    name: Build pre-patched APK (${{ matrix.arch }})
+    name: Build (${{ matrix.arch }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -135,6 +135,50 @@ jobs:
           fi
           echo "Output verification passed."
 
+      - name: Package APKs
+        if: inputs.publish == true || github.event_name == 'release'
+        run: |
+          ARCH="${{ matrix.arch }}"
+          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
+
+          mkdir -p package
+
+          cp output/base.apk "package/base.apk"
+          cp "output/config.${ARCH}.apk" "package/config.${ARCH}.apk"
+          cp output/config.en.apk "package/config.en.apk"
+          cp output/config.xxhdpi.apk "package/config.xxhdpi.apk"
+
+          cp keys/valenced.pk8 "package/signing.pk8"
+          cp keys/valenced.der "package/signing.der"
+
+          cat > "package/INSTALL.txt" << 'EOF'
+Pre-patched Discord with Valenced
+=================================
+
+Installation:
+  1. Extract all APK files to the same folder
+  2. Use adb to install:
+     adb install-multiple -r *.apk
+
+  Or use an APK installer app like "Split APKs Installer" or "APKMirror Installer"
+
+Signing key:
+  - signing.pk8 / signing.der
+  - Keep these files! You need them to update the app later (same signing key required)
+  - If you lose them, you will need to uninstall and reinstall the app
+
+Notes:
+  - This installs alongside the official Discord app as "Valenced" (package: app.valenced)
+  - Valence version: 1.2.3
+  - Discord version: 352.6 - Alpha
+EOF
+
+          cd package
+          zip -r "../${ZIP_NAME}" .
+
+          echo "Package created: ${ZIP_NAME}"
+          ls -la "../${ZIP_NAME}"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -144,3 +188,26 @@ jobs:
             keys/valenced.pk8
             keys/valenced.der
           if-no-files-found: error
+
+      - name: Upload release asset
+        if: inputs.publish == true || github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARCH="${{ matrix.arch }}"
+          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
+
+          # Get tag name from release event
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG_NAME" ]; then
+            echo "Finding latest release..."
+            TAG_NAME=$(gh release view --limit 1 --json tagName --jq '.tagName' 2>/dev/null || echo "")
+            if [ -z "$TAG_NAME" ]; then
+              echo "Creating release..."
+              TAG_NAME="${VALENCE_VERSION}"
+              gh release create "$TAG_NAME" --title "Pre-patched Discord ${VALENCE_VERSION}" --notes "Pre-patched Discord with Valenced ${VALENCE_VERSION}"
+            fi
+          fi
+
+          echo "Uploading ${ZIP_NAME} to release ${TAG_NAME}..."
+          gh release upload "$TAG_NAME" "$ZIP_NAME" --clobber
