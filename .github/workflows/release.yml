@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. 1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  # Valenced release to use
+  VALENCE_VERSION: '1.2.3'
+  # Discord version code (from Valenced's Discord.kt compatibility declaration)
+  DISCORD_VERSION_CODE: '352206'
+  # Valenced's patch bundle public key
+  BUNDLE_PUBLIC_KEY: 'db74a921941576bf70cc1c2777741fb202131a76758ffd3ffcc785f9e76ff119'
+  # Reseam CLI version
+  RESEAM_VERSION: '0.30.1'
+  DISCORD_MIRROR: 'https://proxy.vd.ushie.dev'
+  # Architectures to build (arm64_v8a = most phones, armeabi_v7a = older devices)
+  ARCHES: '["arm64_v8a", "armeabi_v7a"]'
+
+jobs:
+  build-and-release:
+    name: Build & release pre-patched APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(env.ARCHES) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Reseam CLI
+        run: |
+          echo "Installing Reseam CLI v${RESEAM_VERSION}..."
+          wget -q "https://cdn.reseam.app/engine/v${RESEAM_VERSION}/reseam-linux-x64" -O reseam
+          chmod +x reseam
+          ./reseam --version
+
+      - name: Download Discord APKs
+        run: |
+          mkdir -p downloads/discord
+          cd downloads/discord
+
+          echo "Downloading Discord v${DISCORD_VERSION_CODE} (${{ matrix.arch }})..."
+          wget -q "${DISCORD_MIRROR}/tracker/download/${DISCORD_VERSION_CODE}/base" -O base.apk
+          wget -q "${DISCORD_MIRROR}/tracker/download/${DISCORD_VERSION_CODE}/config.${{ matrix.arch }}" -O "config.${{ matrix.arch }}.apk"
+          wget -q "${DISCORD_MIRROR}/tracker/download/${DISCORD_VERSION_CODE}/config.en" -O config.en.apk
+          wget -q "${DISCORD_MIRROR}/tracker/download/${DISCORD_VERSION_CODE}/config.xxhdpi" -O config.xxhdpi.apk
+
+          echo "Downloaded Discord APKs:"
+          ls -la *.apk
+
+      - name: Download Valenced assets
+        run: |
+          mkdir -p downloads/valenced
+          VALENCE_BASE="https://github.com/Valenced/valenced/releases/download/${VALENCE_VERSION}"
+
+          echo "Downloading Valenced ${VALENCE_VERSION}..."
+          wget -q "${VALENCE_BASE}/valenced.reseam" -O downloads/valenced/valenced.reseam
+          wget -q "${VALENCE_BASE}/app-release.apk" -O downloads/valenced/app-release.apk
+
+          echo "Downloaded Valenced assets:"
+          ls -la downloads/valenced/
+
+      - name: Generate signing key
+        run: |
+          mkdir -p keys
+          echo "Generating signing key..."
+          ./reseam bundle keygen --out keys/valenced
+          ls -la keys/
+
+      - name: Patch Discord
+        run: |
+          mkdir -p output
+
+          echo "Patching Discord with Valenced..."
+          ./reseam patch downloads/discord/base.apk \
+            --split "downloads/discord/config.${{ matrix.arch }}.apk" \
+            --split "downloads/discord/config.en.apk" \
+            --split "downloads/discord/config.xxhdpi.apk" \
+            --bundle "downloads/valenced/valenced.reseam" \
+            --trust "${BUNDLE_PUBLIC_KEY}" \
+            --preset all \
+            --option "Valenced.module=downloads/valenced/app-release.apk" \
+            --option "Change package name.packageName=app.valenced" \
+            --option "Change app name.appName=Valenced" \
+            --key keys/valenced.pk8 \
+            --cert keys/valenced.der \
+            --output-dir output/
+
+          echo "Patched APKs:"
+          ls -la output/
+
+      - name: Verify output
+        run: |
+          if [ -z "$(find output/ -name '*.apk' -print -quit)" ]; then
+            echo "Error: No APKs were produced!"
+            exit 1
+          fi
+
+      - name: Create release asset
+        run: |
+          # Find the base APK (it will be named something like base-arm64_v8a-patched.apk or base-patched.apk)
+          BASE_APK=$(find output/ -name "base*" -name "*.apk" | head -1)
+          echo "Base APK: ${BASE_APK}"
+          
+          # Get the filename without directory
+          FILENAME=$(basename "${BASE_APK}")
+          echo "Filename: ${FILENAME}"
+          
+          # Create a nicely named output file
+          ARCH_PREFIX="${{ matrix.arch }}"
+          OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH_PREFIX}.apk"
+          cp "${BASE_APK}" "${OUTPUT_NAME}"
+          
+          echo "Created: ${OUTPUT_NAME}"
+          ls -la "${OUTPUT_NAME}"
+
+      - name: Upload release asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${{ matrix.arch }}.apk"
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          
+          if [ -z "${TAG_NAME}" ]; then
+            TAG_NAME="latest"
+          fi
+          
+          echo "Uploading ${OUTPUT_NAME} to release ${TAG_NAME}..."
+          gh release upload "${TAG_NAME}" "${OUTPUT_NAME}" --clobber
