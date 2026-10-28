@@ -1,11 +1,16 @@
 # Build artifacts
 output/
 downloads/
+download/
 keys/
 reseam
 *.pk8
 *.der
 *.apk
+
+# Release packages
+release-build/
+*.zip
 
 # OS files
 .DS_Store
