@@ -30,7 +30,7 @@ env:
 
 jobs:
   build-and-release:
-    name: Build & release pre-patched APKs
+    name: Build & release pre-patched APKs (${{ matrix.arch }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -117,37 +117,68 @@ jobs:
           echo "Patched APKs:"
           ls -la output/
 
-      - name: Create release asset
+      - name: Package APKs
         run: |
-          # Find the base APK (output is split APKs, base is the main one)
-          ARCH_PREFIX="${{ matrix.arch }}"
-          VALENCE_VERSION="${VALENCE_VERSION}"
+          # The patched output contains split APKs (base.apk, config.{arch}.apk, etc.)
+          # Package them into a ZIP file for easy download and installation
           
-          # For split APK output, the base APK is named base-arm64_v8a-patched.apk or similar
-          BASE_APK=$(find output/ -name "base*${ARCH_PREFIX}*.apk" | head -1)
-          if [ -z "$BASE_APK" ]; then
-            BASE_APK=$(find output/ -name "base*.apk" | head -1)
-          fi
-          if [ -z "$BASE_APK" ]; then
-            echo "Error: No base APK found in output!"
-            ls -la output/
-            exit 1
-          fi
+          ARCH="${{ matrix.arch }}"
+          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
           
-          OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH_PREFIX}.apk"
-          cp "$BASE_APK" "$OUTPUT_NAME"
-          ls -la "$OUTPUT_NAME"
+          # Create a temporary directory for the package
+          mkdir -p "package"
+          
+          # Copy all patched APKs
+          cp output/base.apk "package/base.apk"
+          cp output/config.${ARCH}.apk "package/config.${ARCH}.apk"
+          cp output/config.en.apk "package/config.en.apk"
+          cp output/config.xxhdpi.apk "package/config.xxhdpi.apk"
+          
+          # Copy signing keys for future updates
+          cp keys/valenced.pk8 "package/signing.pk8"
+          cp keys/valenced.der "package/signing.der"
+          
+          # Create installation instructions
+          cat > "package/INSTALL.txt" << 'EOF'
+Pre-patched Discord with Valenced
+=================================
+
+Installation:
+  1. Extract all APK files to the same folder
+  2. Use adb to install:
+     adb install-multiple -r *.apk
+   
+  Or use an APK installer app like "Split APKs Installer" or "APKMirror Installer"
+
+Signing key:
+  - signing.pk8 / signing.der
+  - Keep these files! You need them to update the app later (same signing key required)
+  - If you lose them, you'll need to uninstall and reinstall the app
+
+Notes:
+  - This installs alongside the official Discord app as "Valenced" (package: app.valenced)
+  - Valenced version: 1.2.3
+  - Discord version: 352.6 - Alpha
+EOF
+          
+          # Create the ZIP
+          cd package
+          zip -r "../${ZIP_NAME}" .
+          ls -la "../${ZIP_NAME}"
+          
+          echo "Package created: ${ZIP_NAME}"
 
       - name: Upload release asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OUTPUT_NAME="valenced-discord-${VALENCE_VERSION}-${{ matrix.arch }}.apk"
+          ARCH="${{ matrix.arch }}"
+          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
           TAG_NAME="${{ github.event.release.tag_name }}"
           
           if [ -z "$TAG_NAME" ]; then
             TAG_NAME="${{ github.ref_name }}"
           fi
           
-          echo "Uploading ${OUTPUT_NAME} to release ${TAG_NAME}..."
-          gh release upload "$TAG_NAME" "$OUTPUT_NAME" --clobber
+          echo "Uploading ${ZIP_NAME} to release ${TAG_NAME}..."
+          gh release upload "$TAG_NAME" "$ZIP_NAME" --clobber

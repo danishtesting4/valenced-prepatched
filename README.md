@@ -4,169 +4,228 @@
 [![Release](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/release.yml/badge.svg)](https://github.com/danishtesting4/valenced-prepatched/releases/latest)
 [![License](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://github.com/Valenced/valenced)
 
-**[Valenced](https://valenced.app)** is a client modification for Discord mobile, allowing custom themes and plugins. This repository provides **pre-patched Discord APKs** — Discord that's already been patched with Valenced, ready to install without the Valenced Manager app.
+**[Valenced](https://valenced.app)** is a client modification for Discord mobile, allowing custom themes and plugins. This repository provides **pre-patched Discord APKs** — Discord already modified with Valenced, ready to install without the Valenced Manager app.
 
-> **⚠️ Disclaimer**
+> **⚠️ Disclaimers**
 > 
-> This is a community project, not an official Valenced release. It uses the same patch bundles and modules from the [Valenced releases](https://github.com/Valenced/valenced/releases). This simply automates the patching process so you get a ready-to-install APK.
-> 
-> Using client modifications may violate Discord's Terms of Service. Proceed at your own risk.
+> 1. This is a **community project**, not an official Valenced release. It uses the same patch bundles and modules from the [Valenced releases](https://github.com/Valenced/valenced/releases).
+> 2. Using client modifications may violate Discord's Terms of Service. Proceed at your own risk.
+> 3. Each release pins a **specific Discord version** (currently **352.6 - Alpha**). Discord updates ahead of Valenced will cause crashes — keep Discord at the pinned version.
 
 ## Quick Start
 
-1. Download the latest pre-patched APK from the [Releases](https://github.com/danishtesting4/valenced-prepatched/releases/latest) page.
-2. Uninstall the official Discord app (or keep both — the pre-patched version installs under `app.valenced`).
-3. Install the APK on your Android device.
-4. Open it, log in, and head to **Settings → Valenced** to install plugins and themes.
+1. Download the latest archive from the [Releases](https://github.com/danishtesting4/valenced-prepatched/releases/latest) page.
+2. Extract all APK files to the same folder on your computer.
+3. Install the APK set:
+   
+   **Option A** — via ADB (recommended):
+   ```bash
+   adb install-multiple -r *.apk
+   ```
+   
+   **Option B** — via a split APK installer app (e.g., [APKMirror Installer](https://play.google.com/store/apps/details?id=com.apkmirror.helper.filecryptor) or [Split APKs Installer](https://play.google.com/store/apps/details?id=apk.installer)):
+   - Open the app and select all the extracted APK files.
+   - Follow the prompts.
 
-## What's Included
+4. Open the app, log in, and go to **Settings → Valenced** to install plugins and themes.
 
-Each release provides a pre-patched Discord APK that includes:
-
-- **Valenced loader** – Patches Discord's code to load the Valenced bundle
-- **Valenced bundle** – The JavaScript plugin system and core logic
-- **Package rename** – Installs as `app.valenced` to run alongside the official Discord app
-- **Valenced icon** – Custom icon so you can tell them apart
-- **All patches enabled** – Themes, plugins, and other Valenced features
-
-### Architectures
-
-Pre-patched APKs are available for the most common Android architectures:
+## Available Builds
 
 | Variant | Architecture | Devices |
 |---------|-------------|---------|
-| `arm64-v8a` | ARM64 (64-bit) | Most modern phones/tablets (recommended) |
-| `armeabi-v7a` | ARM (32-bit) | Older devices |
+| `arm64_v8a` | ARM64 (64-bit) | Most modern phones/tablets (recommended) |
+| `armeabi_v7a` | ARM (32-bit) | Older devices |
+
+## What's Inside
+
+Each release archive contains:
+
+| File | Description |
+|------|-------------|
+| `base.apk` | Main Discord APK with Valenced loader injected |
+| `config.{arch}.apk` | Native libraries for your CPU architecture |
+| `config.en.apk` | Language resources |
+| `config.xxhdpi.apk` | App resources (images, fonts, etc.) |
+| `signing.pk8` / `signing.der` | Signing keys for future updates |
+| `INSTALL.txt` | Installation instructions |
+
+### Patches Applied
+
+All patches from the Valenced bundle are enabled:
+
+- ✅ **Valenced** — Core patch that loads the Valenced bundle into Discord
+- ✅ **Change package name** — Installs as `app.valenced` to run alongside the official Discord app
+- ✅ **Change app name** — Shows as "Valenced" in the launcher
+- ✅ **Valenced icon** — Custom cyan icon to distinguish from official Discord
+- ✅ **Enable debugging** — Disabled (can be enabled if needed)
 
 ## How It Works
 
 ```
-Discord APK ← [Reseam patch engine] ← [Valenced patch bundle (.reseam)]
-                    │
-                    └─── Xposed module (Valenced loader)
-                    └─── Package name: app.valenced
-                    └─── App name: Valenced
-                    └─── Custom icon
-                    └─── Debuggable: false
-                    └─── Sign with a fresh key
+Official Discord APK (352.6 - Alpha, versionCode 352206)
+  ───────────────────────────────────────────┐
+                                             │
+Valenced patch bundle (valenced.reseam)      ├→ Applies patches
+Valenced Xposed module (app-release.apk)     ├→ Injects Valenced code
+                                             │
+                                             ▼
+                    Pre-patched Discord APK ← [Valenced]
+                    (package: app.valenced)
 ```
 
-The workflow:
+### Source Repositories
 
-1. Downloads Discord APK splits for the supported version (352.6 - Alpha, versionCode `352206`)
-2. Downloads the Valenced patch bundle (`valenced.reseam`) and Xposed module (`app-release.apk`) from the Valenced GitHub releases
-3. Applies all patches using the [Reseam CLI](https://reseam.app/docs/cli/patch/)
-4. Signs the APK with a generated key
+- **[Valenced](https://github.com/Valenced/valenced)** — Core Valenced code (bundle, Xposed module)
+- **[Valenced-Manager](https://github.com/Valenced/valenced-manager)** — The official installer app
+- **[Reseam](https://reseam.app)** — The patch engine used by Valenced
 
 ## Building Locally
 
 ### Prerequisites
 
-- **Java 17+** (Temurin or OpenJDK)
-- **Linux or macOS** (the reseam CLI is Linux/macOS; use WSL on Windows)
+- **Java 17+** (Java 21 recommended — LSPatch requires class file version 65.0)
+- **Linux or macOS** (the Reseam CLI is not available for Windows)
+- `wget` or `curl`
+- `zip` (for packaging)
 
-### Steps
-
-1. Download the [Reseam CLI](https://cdn.reseam.app/engine/v0.30.1/reseam-linux-x64):
+### One-command Build
 
 ```bash
-curl -fsSLo reseam https://cdn.reseam.app/engine/v0.30.1/reseam-linux-x64
+# Clone this repo
+git clone https://github.com/danishtesting4/valenced-prepatched
+cd valenced-prepatched
+
+# Make the script executable
+chmod +x patch.sh
+
+# Build for arm64_v8a (most phones)
+./patch.sh
+
+# Or build for armeabi_v7a (older devices)
+ARCH=armeabi_v7a ./patch.sh
+```
+
+### Manual Build
+
+1. Download the Reseam CLI:
+
+```bash
+wget -q https://cdn.reseam.app/engine/v0.30.1/reseam-linux-x64 -O reseam
 chmod +x reseam
 ```
 
-2. Download the dependencies. You can use the provided script:
+2. Download Discord APKs:
 
 ```bash
-ARCH=arm64_v8a  # or armeabi_v7a
-./patch.sh
+mkdir downloads && cd downloads
+wget -q https://proxy.vd.ushie.dev/tracker/download/352206/base -O base.apk
+wget -q https://proxy.vd.ushie.dev/tracker/download/352206/config.arm64_v8a -O config.arm64_v8a.apk
+wget -q https://proxy.vd.ushie.dev/tracker/download/352206/config.en -O config.en.apk
+wget -q https://proxy.vd.ushie.dev/tracker/download/352206/config.xxhdpi -O config.xxhdpi.apk
 ```
 
-Or manually download everything:
+3. Download Valenced assets:
 
 ```bash
-# Discord splits (version 352.6 - Alpha, versionCode 352206)
-VALENCE_VERSION=1.2.3
-DISCORD_VERSION_CODE=352206
-MIRROR=https://proxy.vd.ushie.dev
-DISCORD_BASE=https://github.com/Valenced/valenced/releases/download
-
-# Download Discord
-wget -O base.apk $MIRROR/tracker/download/$DISCORD_VERSION_CODE/base
-wget -O config.$ARCH.apk $MIRROR/tracker/download/$DISCORD_VERSION_CODE/config.$ARCH
-wget -O config.en.apk $MIRROR/tracker/download/$DISCORD_VERSION_CODE/config.en
-wget -O config.xxhdpi.apk $MIRROR/tracker/download/$DISCORD_VERSION_CODE/config.xxhdpi
-
-# Download Valenced
-wget -O valenced.reseam $DISCORD_BASE/$VALENCE_VERSION/valenced.reseam
-wget -O app-release.apk $DISCORD_BASE/$VALENCE_VERSION/app-release.apk
+cd ../downloads
+wget -q https://github.com/Valenced/valenced/releases/download/1.2.3/valenced.reseam -O valenced.reseam
+wget -q https://github.com/Valenced/valenced/releases/download/1.2.3/app-release.apk -O app-release.apk
 ```
 
-3. Generate a signing key (only need to do this once):
+4. Generate signing key:
 
 ```bash
-reseam bundle keygen --out valenced.pk8
-# Note the public key it prints — you'll need to trust it
+reseam bundle keygen --out signing
 ```
 
-4. Patch:
+5. Patch:
 
 ```bash
+mkdir output
 reseam patch base.apk \
-  --split config.$ARCH.apk \
+  --split config.arm64_v8a.apk \
   --split config.en.apk \
   --split config.xxhdpi.apk \
   --bundle valenced.reseam \
-  --trust <public-key-from-keygen> \
+  --trust db74a921941576bf70cc1c2777741fb202131a76758ffd3ffcc785f9e76ff119 \
   --preset all \
   --option "Valenced.module=app-release.apk" \
   --option "Change package name.packageName=app.valenced" \
   --option "Change app name.appName=Valenced" \
-  --key valenced.pk8 \
-  --cert valenced.der \
+  --key signing.pk8 \
+  --cert signing.der \
   --output-dir output/
 ```
 
-5. The patched APK(s) will be in `output/`. Install with:
+6. Install:
 
 ```bash
-adb install -r output/base-arm64_v8a-patched.apk
-# or for split APKs:
-adb install-multiple output/*.apk
+cd output
+adb install-multiple -r *.apk
 ```
 
-## Manual Patching
+### Docker Build
 
-This repo also includes a `patch.sh` script for manual patching:
+A Docker image is also available for Linux users:
 
 ```bash
-# Default values
-VALENCE_VERSION=1.2.3
-DISCORD_VERSION=352.6 - Alpha
-ARCH=arm64_v8a
-
-# Run with custom values
-VALENCE_VERSION=1.2.3 ARCH=armeabi_v7a ./patch.sh
+docker build -t valenced-prepatched .
+docker run --rm -v $(pwd)/output:/output valenced-prepatched
 ```
+
+## GitHub Actions
+
+This repo has two workflows:
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| **Build** | Push/PR | Validates the build process, produces split APK artifacts |
+| **Release** | `workflow_dispatch` or GitHub Release | Creates a release archive with all APKs and signing keys |
 
 ## Updating
 
 When a new Valenced version is released:
 
-1. This repo's workflow will automatically build and release the new patched APK
-2. Uninstall the old Valenced Discord app
-3. Install the new APK from [Releases](https://github.com/danishtesting4/valenced-prepatched/releases)
+1. Check the [Valenced releases](https://github.com/Valenced/valenced/releases) for the new version.
+2. Update `VALENCE_VERSION` in the workflow files and `patch.sh`.
+3. The Discord version may also change — update `DISCORD_VERSION_CODE` accordingly.
+
+When updating an existing installation:
+
+1. Download the new pre-patched APK set from the [Releases](https://github.com/danishtesting4/valenced-prepatched/releases) page.
+2. Use the **same signing key** (`signing.pk8` / `signing.der`) from your previous build:
+   ```bash
+   reseam patch base.apk \
+     --key signing.pk8 \
+     --cert signing.der \
+     ...
+   ```
+3. Install with `adb install-multiple -r *.apk` (the `-r` flag preserves app data).
+
+> ⚠️ If you lose the signing key, you must uninstall the old app first, as Android requires the same signing key for updates.
 
 ## Troubleshooting
 
-- **Install failed**: Make sure you uninstalled any previous version or use `adb install-multiple` for split APKs
-- **App crashes on startup**: Ensure you downloaded the correct architecture variant
-- **Discord won't connect**: Try clearing the app cache/data in Android Settings → Apps → Valenced
-- **Version mismatch**: Valenced pins to specific Discord versions. Check the [Valenced releases](https://github.com/Valenced/valenced/releases) for the supported version
+- **"INSTALL_FAILED_UPDATE_INCOMPATIBLE"**: The installed app was signed with a different key. Uninstall the old version and reinstall.
+- **"INSTALL_FAILED_CONFLICTING_PERMISSION"**: Another app with the same package name is installed. Uninstall the conflicting app.
+- **App crashes on startup**: Make sure you downloaded the correct architecture variant.
+- **Discord won't connect**: Try clearing the app cache/data in Android Settings → Apps → Valenced.
+- **Version mismatch**: Valenced pins to a specific Discord version. Don't update Discord ahead of Valenced.
 
-## Credits
+## Architecture Notes
 
-- [Valenced](https://github.com/Valenced) — Client modification for Discord mobile
-- [Reseam](https://reseam.app) — Patch engine used by Valenced
-- [LSPatch](https://github.com/LSPosed/LSPatch) — Underlying patching library
+The Valenced architecture consists of three parts:
 
-This project is licensed under GPL-3.0. Valenced's `android/patches` module is licensed under AGPL-3.0.
+1. **`bundle`** — Hermes JavaScript bytecode that runs inside Discord (the plugin system and UI)
+2. **`core`** — Shared Kotlin Multiplatform code for the plugin system
+3. **`android`** — The Android Xposed module that injects Valenced into Discord
+
+The patch bundle (`valenced.reseam`) contains both the core patches (which modify Discord's code) and the bundle (JavaScript that provides the plugin/theme features). The Xposed module (`app-release.apk`) is loaded inside Discord and acts as the bridge between the native code and the JavaScript bundle.
+
+## License
+
+This repository is licensed under GPL-3.0. It does not contain any copyrighted code from Valenced — it only provides automation scripts and workflows that download and combine publicly available assets.
+
+- Valenced: [GPL-3.0](https://github.com/Valenced/valenced/blob/master/LICENSE)
+- Valenced patches: [AGPL-3.0](https://github.com/Valenced/valenced/blob/master/android/patches/LICENSE)
+- Reseam: [AGPL-3.0](https://reseam.app)
