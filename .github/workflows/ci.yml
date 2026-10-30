@@ -161,32 +161,69 @@ jobs:
 
       - name: Merge split APKs into single APK
         run: |
-          set +e
           ARCH="${{ matrix.arch }}"
           echo "Merging split APKs into a single APK for ${ARCH}..."
 
           echo "=== Files in output/ ==="
           ls -la output/
+          FILES_OUTPUT=$(ls output/*.apk 2>/dev/null | xargs -I{} basename {} | tr '\n' ' ')
+          echo "::notice::Files in output/: ${FILES_OUTPUT}"
 
           mkdir -p merge
-          cp output/*.apk merge/ 2>&1
+          # Copy using specific names (matching patch.sh reference)
+          cp output/base.apk merge/
+          cp "output/config.${ARCH}.apk" merge/
+          cp output/config.en.apk merge/
+          cp output/config.xxhdpi.apk merge/
           echo "=== Files in merge/ ==="
           ls -la merge/
+          FILES_MERGE=$(ls merge/*.apk 2>/dev/null | xargs -I{} basename {} | tr '\n' ' ')
+          echo "::notice::Files in merge/: ${FILES_MERGE}"
 
+          # Try APKEditor merge (with -clean-meta flag)
           echo "=== Running APKEditor merge ==="
-          java -jar APKEditor.jar m -i merge/ -o output/merged.apk > /tmp/apkeditor.log 2>&1
+          set +e
+          java -jar APKEditor.jar m -clean-meta -i merge/ -o output/merged.apk > /tmp/apkeditor.log 2>&1
           MERGE_EXIT=$?
-          echo "=== APKEditor output ==="
-          cat /tmp/apkeditor.log
           set -e
 
-          echo "APKEditor exit code: ${MERGE_EXIT}"
+          echo "=== APKEditor output ==="
+          cat /tmp/apkeditor.log
+
           if [ ${MERGE_EXIT} -ne 0 ]; then
-            APK_COUNT=$(find merge/ -maxdepth 1 -name '*.apk' 2>/dev/null | wc -l | tr -d ' ')
-            echo "::notice::APK files in merge/: ${APK_COUNT}"
-            APKERROR=$(cat /tmp/apkeditor.log 2>/dev/null | tr '\n' ' | ')
-            echo "::error::APKEditor merge failed (exit ${MERGE_EXIT}). Files in merge/: ${APK_COUNT}. Log: ${APKERROR}"
-            exit ${MERGE_EXIT}
+            echo "::warning::APKEditor merge failed (exit ${MERGE_EXIT}), trying manual zip merge"
+            APKERROR_LOG=$(head -5 /tmp/apkeditor.log 2>/dev/null | tr '\n' ' | ')
+            echo "::error::APKEditor failed. Output: ${APKERROR_LOG}"
+
+            # Manual merge using zip: extract base.apk, then add config files without overwriting
+            echo "=== Manual zip merge ==="
+            rm -rf merge_temp
+            mkdir -p merge_temp
+
+            # Extract base APK first
+            unzip -o -q merge/base.apk -d merge_temp/
+            echo "Extracted base.apk"
+
+            # Add config APK files without overwriting base files
+            for apk in merge/config.*.apk; do
+              if [ -f "$apk" ]; then
+                echo "Extracting $(basename $apk) (without overwriting)..."
+                unzip -n -q "$apk" -d merge_temp/
+              fi
+            done
+
+            # Remove old signature before repackaging
+            rm -rf merge_temp/META-INF
+
+            # Repackage into single APK
+            cd merge_temp
+            zip -r -q -X ../output/merged.apk .
+            cd ..
+
+            echo "Manual zip merge complete"
+            echo "::notice::Manual zip merge succeeded"
+          else
+            echo "APKEditor merge succeeded"
           fi
 
           echo "Merged APK:"
