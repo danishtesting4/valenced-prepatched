@@ -308,7 +308,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ARCH="${{ matrix.arch }}"
-          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip
+          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
 
           echo "Checking for ZIP file..."
           ls -la "${ZIP_NAME}" 2>&1 || echo "ZIP file not found at repo root"
