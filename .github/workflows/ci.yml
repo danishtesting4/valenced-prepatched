@@ -162,30 +162,39 @@ jobs:
       - name: Merge split APKs into single APK
         run: |
           set +e
+          exec > >(tee /tmp/merge_output.log) 2>&1
           ARCH="${{ matrix.arch }}"
           echo "Merging split APKs into a single APK for ${ARCH}..."
 
           echo "=== Files in output/ ==="
           ls -la output/
+          find output/ -maxdepth 1 -name '*.apk' -print
 
           mkdir -p merge
           cp output/*.apk merge/ 2>&1
           echo "=== Files in merge/ ==="
           ls -la merge/
+          find merge/ -maxdepth 1 -name '*.apk' -print
+
+          echo "=== APKEditor version ==="
+          java -jar APKEditor.jar -v 2>&1
 
           echo "=== Running APKEditor merge ==="
-          java -jar APKEditor.jar m -f -i merge/ -o output/merged.apk 2>&1
+          java -jar APKEditor.jar m -i merge/ -o output/merged.apk 2>&1
           MERGE_EXIT=$?
-          set -e
 
           echo "APKEditor exit code: ${MERGE_EXIT}"
-          if [ ${MERGE_EXIT} -ne 0 ]; then
-            echo "ERROR: APKEditor merge failed with exit code ${MERGE_EXIT}"
-            exit ${MERGE_EXIT}
-          fi
+          ls -la output/merged.apk 2>&1 || true
 
-          echo "Merged APK:"
-          ls -la output/merged.apk
+          exit ${MERGE_EXIT}
+
+      - name: Upload debug logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: merge-debug-${{ matrix.arch }}
+          path: /tmp/merge_output.log
+          if-no-files-found: ignore
 
       - name: Zipalign and sign the single APK
         run: |
