@@ -66,11 +66,20 @@ jobs:
 
       - name: Setup Android SDK build-tools
         run: |
-          BUILD_TOOLS_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME: ${ANDROID_HOME}"
+          BUILD_TOOLS_DIR="${ANDROID_HOME}/build-tools"
           if [ -d "${BUILD_TOOLS_DIR}" ]; then
             LATEST_BT=$(ls "${BUILD_TOOLS_DIR}" | sort -V | tail -1)
-            echo "${BUILD_TOOLS_DIR}/${LATEST_BT}" >> $GITHUB_PATH
+            BT_PATH="${BUILD_TOOLS_DIR}/${LATEST_BT}"
             echo "Android build-tools: ${LATEST_BT}"
+            echo "BT_PATH: ${BT_PATH}"
+            echo "${BT_PATH}" >> $GITHUB_PATH
+            ls "${BT_PATH}"
+          else
+            echo "build-tools dir not found, installing..."
+            yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0" 2>&1 || true
+            echo "${BUILD_TOOLS_DIR}/34.0.0" >> $GITHUB_PATH
           fi
           echo "zipalign: $(which zipalign 2>/dev/null || echo 'NOT FOUND')"
           echo "apksigner: $(which apksigner 2>/dev/null || echo 'NOT FOUND')"
@@ -121,8 +130,11 @@ jobs:
           mkdir -p keys
           echo "Generating signing key..."
           ./reseam bundle keygen --out keys/valenced
-          echo "Signing key generated:"
+          echo "Signing key generated. Full listing:"
           ls -la keys/
+          echo "Checking for .pk8 and .der files:"
+          ls -la keys/valenced.pk8 2>&1 || echo "WARNING: valenced.pk8 not found!"
+          ls -la keys/valenced.der 2>&1 || echo "WARNING: valenced.der not found!"
 
       - name: Patch Discord
         run: |
@@ -147,6 +159,9 @@ jobs:
           ls -la output/
           echo "Signing key files:"
           ls -la keys/
+          echo "Checking pk8/der after patch:"
+          ls -la keys/valenced.pk8 2>&1 || echo "WARNING: valenced.pk8 not found!"
+          ls -la keys/valenced.der 2>&1 || echo "WARNING: valenced.der not found!"
 
       - name: Merge split APKs into single APK
         run: |
@@ -170,14 +185,29 @@ jobs:
         run: |
           echo "Zipaligning and signing the merged APK..."
 
+          echo "Debug - checking files:"
+          echo "  merged.apk exists: $(ls -la output/merged.apk 2>&1 || true)"
+          echo "  valenced.pk8 exists: $(ls -la keys/valenced.pk8 2>&1 || true)"
+          echo "  valenced.der exists: $(ls -la keys/valenced.der 2>&1 || true)"
+          echo "  keys/ directory contents:"
+          ls -la keys/ 2>&1 || true
+          echo "  zipalign location: $(which zipalign 2>&1 || echo 'NOT FOUND')"
+          echo "  apksigner location: $(which apksigner 2>&1 || echo 'NOT FOUND')"
+
           # Zipalign (force 4-byte alignment)
-          zipalign -f -4 output/merged.apk output/valenced.apk
+          echo "Running zipalign..."
+          zipalign -v -f -4 output/merged.apk output/valenced.apk
+          echo "zipalign exit code: $?"
 
           # Sign with apksigner using the same key as Reseam
+          echo "Running apksigner sign..."
           apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk
+          echo "apksigner sign exit code: $?"
 
           # Verify the signature
+          echo "Running apksigner verify..."
           apksigner verify --verbose output/valenced.apk
+          echo "apksigner verify exit code: $?"
 
           echo "Signed single APK:"
           ls -la output/valenced.apk
