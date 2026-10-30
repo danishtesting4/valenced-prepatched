@@ -283,7 +283,7 @@ jobs:
 
           set +e
           # Zipalign (force 4-byte alignment)
-          ZIPALIGN_OUTPUT=$(zipalign -f -4 output/merged.apk output/valenced.apk 2>&1)
+          ZIPALIGN_OUTPUT=$(zipalign -f 4 output/merged.apk output/valenced.apk 2>&1)
           ZIPALIGN_EXIT=$?
           set -e
 
