@@ -92,9 +92,6 @@ jobs:
         run: |
           echo "Downloading APKEditor v${APKEDITOR_VERSION}..."
           wget -q --show-progress "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" -O APKEditor.jar
-          echo "APKEditor downloaded:"
-          ls -la APKEditor.jar
-          file APKEditor.jar
           echo "Checking SHA256..."
           echo "a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67 APKEditor.jar" | sha256sum -c -
           echo "Running APKEditor version check (non-fatal)..."
@@ -166,97 +163,63 @@ jobs:
           ARCH="${{ matrix.arch }}"
           echo "Merging split APKs into a single APK for ${ARCH}..."
 
-          echo "=== Files in output/ ==="
-          ls -la output/
-          FILES_OUTPUT=$(ls -la output/*.apk 2>/dev/null | awk '{print $5 ":" $9}' | tr '\n' ', ')
-          echo "::notice::Files in output/: ${FILES_OUTPUT}"
-
           mkdir -p merge
-          # Copy using specific names (matching patch.sh reference)
           cp output/base.apk merge/
           cp "output/config.${ARCH}.apk" merge/
           cp output/config.en.apk merge/
           cp output/config.xxhdpi.apk merge/
-          echo "=== Files in merge/ ==="
+          echo "Files in merge:"
           ls -la merge/
-          FILES_MERGE=$(ls -la merge/*.apk 2>/dev/null | awk '{print $5 ":" $9}' | tr '\n' ', ')
-          echo "::notice::Files in merge/: ${FILES_MERGE}"
 
-          # Try APKEditor merge (with -clean-meta flag)
-          echo "=== Running APKEditor merge ==="
+          # Try APKEditor merge (known issue: APKEditor 1.4.9 fails with resource linking error on patched APKs)
+          # Falls back to manual zip merge if APKEditor fails
           set +e
-          java -jar APKEditor.jar m -clean-meta -i merge/ -o output/merged.apk > /tmp/apkeditor.log 2>&1
+          java -jar APKEditor.jar m -i merge/ -o output/merged.apk > /tmp/apkeditor.log 2>&1
           MERGE_EXIT=$?
           set -e
 
-          echo "=== APKEditor output ==="
-          cat /tmp/apkeditor.log
-
           if [ ${MERGE_EXIT} -ne 0 ]; then
-            echo "::warning::APKEditor merge failed (exit ${MERGE_EXIT}), trying manual zip merge"
+            echo "::warning::APKEditor merge failed (exit ${MERGE_EXIT}), using manual zip merge"
 
-            # Manual merge using zip: extract base.apk, then add config files without overwriting
-            echo "=== Manual zip merge ==="
-            echo "pwd: $(pwd)"
-            echo "unzip: $(which unzip 2>&1)"
-            echo "zip: $(which zip 2>&1)"
-
+            # Manual merge: extract base.apk, then add config APKs without overwriting
             rm -rf merge_temp
             mkdir -p merge_temp
 
             # Extract base APK
-            echo "Extracting base.apk..."
-            ls -la merge/base.apk
-            unzip -o merge/base.apk -d merge_temp/ 2>&1 || echo "ERROR: unzip of base.apk failed"
-            echo "Files in merge_temp/ after base.apk:"
-            ls -la merge_temp/ | head -20
+            unzip -o merge/base.apk -d merge_temp/ || echo "ERROR: unzip of base.apk failed"
 
             # Add config APK files without overwriting base files
             for apk in merge/config.*.apk; do
-              if [ -f "$apk" ]; then
-                echo "Extracting $(basename $apk)..."
-                unzip -n "$apk" -d merge_temp/ 2>&1 || echo "WARNING: unzip of $(basename $apk) failed"
-              fi
+              [ -f "$apk" ] && unzip -n "$apk" -d merge_temp/ || true
             done
-
-            echo "Files in merge_temp/ after config APKs:"
-            ls -la merge_temp/ | head -20
 
             # Remove old signature before repackaging
             rm -rf merge_temp/META-INF
 
-            # Repackage into single APK
-            cd merge_temp
-            echo "Number of files to zip: $(ls -1 | wc -l)"
-
-            # Try zip first (creates proper ZIP that zipalign can process)
-            set +e
-            zip -r -q -X ../output/merged.apk . 2>&1
-            ZIP_EXIT=$?
-            set -e
-
-            if [ ${ZIP_EXIT} -eq 0 ] && [ -f ../output/merged.apk ]; then
-              echo "::notice::Manual zip merge succeeded via zip"
+            # Repackage using zip (preferred) or jar (fallback)
+            MERGE_OK=false
+            (cd merge_temp && zip -r -q -X ../output/merged.apk .) 2>&1
+            if [ $? -eq 0 ] && [ -f output/merged.apk ]; then
+              MERGE_OK=true
             else
-              echo "zip failed (exit ${ZIP_EXIT}), trying jar..."
+              rm -f output/merged.apk
               rm -f /tmp/merged_apk.jar
-              jar cf /tmp/merged_apk.jar . 2>&1
+              jar cf /tmp/merged_apk.jar -C merge_temp . 2>&1 || true
               if [ -f /tmp/merged_apk.jar ]; then
-                cp /tmp/merged_apk.jar ../output/merged.apk
-                echo "::notice::Manual zip merge succeeded via jar"
-                ZIP_EXIT=0
-              else
-                echo "::error::Manual zip merge failed!"
-                exit 1
+                cp /tmp/merged_apk.jar output/merged.apk
+                MERGE_OK=true
               fi
             fi
-            cd ..
-          else
-            echo "APKEditor merge succeeded"
+
+            if [ "$MERGE_OK" = true ]; then
+              echo "::notice::Manual zip merge succeeded, APK size: $(stat -c '%s' output/merged.apk 2>/dev/null || echo 'unknown') bytes"
+            else
+              echo "::error::Manual zip merge also failed!"
+              exit 1
+            fi
           fi
 
-          echo "Merged APK:"
-          ls -la output/merged.apk
+          echo "Merged APK: $(ls -la output/merged.apk 2>&1)"
 
       - name: Upload debug logs
         if: always()
@@ -268,51 +231,32 @@ jobs:
 
       - name: Zipalign and sign the single APK
         run: |
-          echo "Checking merged APK..."
-          ls -la output/merged.apk
-          file output/merged.apk
-          APK_FILE_SIZE=$(stat -c '%s' output/merged.apk 2>/dev/null || echo 'unknown')
-          echo "::notice::merged.apk size: ${APK_FILE_SIZE} bytes"
-          echo "APK contents:"
-          unzip -l output/merged.apk 2>&1 | head -30
-          UNZIP_TEST=$(unzip -t output/merged.apk 2>&1 | tail -5)
-          echo "::notice::unzip test result: ${UNZIP_TEST}"
-
-          echo ""
           echo "Zipaligning and signing the merged APK..."
 
-          set +e
-          # Zipalign (force 4-byte alignment)
+          # Zipalign (4-byte alignment)
           ZIPALIGN_OUTPUT=$(zipalign -f 4 output/merged.apk output/valenced.apk 2>&1)
           ZIPALIGN_EXIT=$?
-          set -e
 
           if [ ${ZIPALIGN_EXIT} -ne 0 ]; then
             echo "::error::zipalign failed (exit ${ZIPALIGN_EXIT}). Output: ${ZIPALIGN_OUTPUT}"
             exit ${ZIPALIGN_EXIT}
           fi
-          echo "zipalign succeeded"
 
-          set +e
-          # Sign with apksigner using the same key as Reseam
-          apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk 2>&1
+          # Sign with apksigner
+          APKSIGNER_OUTPUT=$(apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk 2>&1)
           APKSIGNER_EXIT=$?
-          set -e
 
           if [ ${APKSIGNER_EXIT} -ne 0 ]; then
-            echo "::error::apksigner sign failed (exit ${APKSIGNER_EXIT})"
+            echo "::error::apksigner sign failed (exit ${APKSIGNER_EXIT}). Output: ${APKSIGNER_OUTPUT}"
             exit ${APKSIGNER_EXIT}
           fi
-          echo "apksigner sign succeeded"
 
-          set +e
           # Verify the signature
-          apksigner verify --verbose output/valenced.apk 2>&1
+          VERIFY_OUTPUT=$(apksigner verify --verbose output/valenced.apk 2>&1)
           VERIFY_EXIT=$?
-          set -e
 
           if [ ${VERIFY_EXIT} -ne 0 ]; then
-            echo "::error::apksigner verify failed (exit ${VERIFY_EXIT})"
+            echo "::error::apksigner verify failed (exit ${VERIFY_EXIT}). Output: ${VERIFY_OUTPUT}"
             exit ${VERIFY_EXIT}
           fi
 
