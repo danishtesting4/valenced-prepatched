@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ inputs.arch == 'all' && fromJSON('["arm64_v8a", "armeabi_v7a"]') || fromJSON(inputs.arch) }}
+        arch: ${{ (inputs.arch == '' || inputs.arch == 'all') && fromJSON('["arm64_v8a", "armeabi_v7a"]') || fromJSON(inputs.arch) }}
 
     steps:
       - name: Checkout
