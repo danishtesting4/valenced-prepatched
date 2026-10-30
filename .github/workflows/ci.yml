@@ -66,7 +66,6 @@ jobs:
 
       - name: Setup Android SDK build-tools
         run: |
-          # Ensure zipalign and apksigner are on PATH
           BUILD_TOOLS_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"
           if [ -d "${BUILD_TOOLS_DIR}" ]; then
             LATEST_BT=$(ls "${BUILD_TOOLS_DIR}" | sort -V | tail -1)
@@ -205,30 +204,7 @@ jobs:
           cp keys/valenced.pk8 "package/signing.pk8"
           cp keys/valenced.der "package/signing.der"
 
-          cat > "package/INSTALL.txt" << EOF
-Pre-patched Discord with Valenced
-=================================
-
-Valence version: ${VALENCE_VERSION}
-Discord version: 352.6 - Alpha
-Architecture: ${ARCH}
-
-Installation:
-  1. Extract valenced.apk from the archive
-  2. Install directly on your Android device:
-     adb install -r valenced.apk
-
-  Or copy the APK to your phone and open it with any file manager.
-
-Signing key:
-  - signing.pk8 / signing.der
-  - Keep these files! You need them to update the app later (same signing key required)
-  - If you lose them, you will need to uninstall and reinstall the app
-
-Notes:
-  - This installs alongside the official Discord app as "Valenced" (package: app.valenced)
-  - Valence version: ${VALENCE_VERSION}
-EOF
+          printf 'Pre-patched Discord with Valenced\n=================================\n\nValence version: %s\nDiscord version: 352.6 - Alpha\nArchitecture: %s\n\nInstallation:\n  1. Extract valenced.apk from the archive\n  2. Install directly on your Android device:\n     adb install -r valenced.apk\n\n  Or copy the APK to your phone and open it with any file manager.\n\nSigning key:\n  - signing.pk8 / signing.der\n  - Keep these files! You need them to update the app later (same signing key required)\n  - If you lose them, you will need to uninstall and reinstall the app\n\nNotes:\n  - This installs alongside the official Discord app as "Valenced" (package: app.valenced)\n  - Valence version: %s\n' "${VALENCE_VERSION}" "${ARCH}" "${VALENCE_VERSION}" > "package/INSTALL.txt"
 
           cd package
           zip -r "../${ZIP_NAME}" .
@@ -254,7 +230,6 @@ EOF
           ARCH="${{ matrix.arch }}"
           ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
 
-          # Get tag name from release event
           TAG_NAME="${{ github.event.release.tag_name }}"
           if [ -z "$TAG_NAME" ]; then
             echo "Finding latest release..."
