@@ -71,14 +71,16 @@ jobs:
           BUILD_TOOLS_DIR="${ANDROID_HOME}/build-tools"
           if [ -d "${BUILD_TOOLS_DIR}" ]; then
             LATEST_BT=$(ls "${BUILD_TOOLS_DIR}" | sort -V | tail -1)
-            BT_PATH="${BUILD_TOOLS_DIR}/${LATEST_BT}"
             echo "Android build-tools: ${LATEST_BT}"
-            echo "BT_PATH: ${BT_PATH}"
-            echo "${BT_PATH}" >> $GITHUB_PATH
-            ls "${BT_PATH}"
+            echo "${BUILD_TOOLS_DIR}/${LATEST_BT}" >> $GITHUB_PATH
           else
             echo "build-tools dir not found, installing..."
-            yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0" 2>&1 || true
+            mkdir -p "${BUILD_TOOLS_DIR}"
+            wget -q "https://dl.google.com/android/repository/build-tools_34.0.0-linux.zip" -O /tmp/bt.zip
+            cd /tmp && unzip -q -o bt.zip
+            cp -r /tmp/34.0.0/* "${BUILD_TOOLS_DIR}/34.0.0/"
+            cd -
+            rm -rf /tmp/bt.zip /tmp/34.0.0
             echo "${BUILD_TOOLS_DIR}/34.0.0" >> $GITHUB_PATH
           fi
           echo "zipalign: $(which zipalign 2>/dev/null || echo 'NOT FOUND')"
@@ -90,6 +92,7 @@ jobs:
           wget -q "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" -O APKEditor.jar
           echo "APKEditor downloaded:"
           ls -la APKEditor.jar
+          java -jar APKEditor.jar -v
 
       - name: Download Discord APKs
         run: |
@@ -117,9 +120,6 @@ jobs:
           echo "Downloaded Valenced assets:"
           ls -la downloads/valenced/
 
-          echo "SHA-256 verification:"
-          sha256sum downloads/valenced/*
-
       - name: Verify bundle
         run: |
           echo "Verifying Valenced patch bundle..."
@@ -130,11 +130,8 @@ jobs:
           mkdir -p keys
           echo "Generating signing key..."
           ./reseam bundle keygen --out keys/valenced
-          echo "Signing key generated. Full listing:"
+          echo "Signing key generated:"
           ls -la keys/
-          echo "Checking for .pk8 and .der files:"
-          ls -la keys/valenced.pk8 2>&1 || echo "WARNING: valenced.pk8 not found!"
-          ls -la keys/valenced.der 2>&1 || echo "WARNING: valenced.der not found!"
 
       - name: Patch Discord
         run: |
@@ -157,43 +154,29 @@ jobs:
 
           echo "Patched APKs:"
           ls -la output/
-          echo "Signing key files:"
-          ls -la keys/
-          echo "Checking pk8/der after patch:"
-          ls -la keys/valenced.pk8 2>&1 || echo "WARNING: valenced.pk8 not found!"
-          ls -la keys/valenced.der 2>&1 || echo "WARNING: valenced.der not found!"
 
       - name: Merge split APKs into single APK
         run: |
+          set +e
           ARCH="${{ matrix.arch }}"
           echo "Merging split APKs into a single APK for ${ARCH}..."
 
-          # Show all output files from patch
           echo "=== Files in output/ ==="
           ls -la output/
-          ::notice::APK files in output/: $(ls output/*.apk 2>&1 || echo "none")"
 
-          # Copy all APK files to a merge directory
           mkdir -p merge
-          cp output/*.apk merge/ 2>&1 || echo "::error::No APK files found in output/"
-          echo "::notice::Files in merge/: $(ls merge/ 2>&1 || echo "empty")"
+          cp output/*.apk merge/ 2>&1
+          echo "=== Files in merge/ ==="
+          ls -la merge/
 
-          # Verify APKEditor works
-          echo "=== APKEditor version ==="
-          java -jar APKEditor.jar -v 2>&1 || echo "::error::APKEditor version check failed"
-
-          # Merge splits using APKEditor with force flag
           echo "=== Running APKEditor merge ==="
-          set +e
           java -jar APKEditor.jar m -f -i merge/ -o output/merged.apk 2>&1
           MERGE_EXIT=$?
           set -e
-          echo "::notice::APKEditor exit code: ${MERGE_EXIT}"
 
+          echo "APKEditor exit code: ${MERGE_EXIT}"
           if [ ${MERGE_EXIT} -ne 0 ]; then
-            echo "::error::APKEditor merge failed with exit code ${MERGE_EXIT}"
-            echo "Files in output/ after failed merge:"
-            ls -la output/
+            echo "ERROR: APKEditor merge failed with exit code ${MERGE_EXIT}"
             exit ${MERGE_EXIT}
           fi
 
@@ -204,29 +187,14 @@ jobs:
         run: |
           echo "Zipaligning and signing the merged APK..."
 
-          echo "Debug - checking files:"
-          echo "  merged.apk exists: $(ls -la output/merged.apk 2>&1 || true)"
-          echo "  valenced.pk8 exists: $(ls -la keys/valenced.pk8 2>&1 || true)"
-          echo "  valenced.der exists: $(ls -la keys/valenced.der 2>&1 || true)"
-          echo "  keys/ directory contents:"
-          ls -la keys/ 2>&1 || true
-          echo "  zipalign location: $(which zipalign 2>&1 || echo 'NOT FOUND')"
-          echo "  apksigner location: $(which apksigner 2>&1 || echo 'NOT FOUND')"
-
           # Zipalign (force 4-byte alignment)
-          echo "Running zipalign..."
-          zipalign -v -f -4 output/merged.apk output/valenced.apk
-          echo "zipalign exit code: $?"
+          zipalign -f -4 output/merged.apk output/valenced.apk
 
           # Sign with apksigner using the same key as Reseam
-          echo "Running apksigner sign..."
           apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk
-          echo "apksigner sign exit code: $?"
 
           # Verify the signature
-          echo "Running apksigner verify..."
           apksigner verify --verbose output/valenced.apk
-          echo "apksigner verify exit code: $?"
 
           echo "Signed single APK:"
           ls -la output/valenced.apk
@@ -239,7 +207,6 @@ jobs:
           fi
           echo "Output verification passed."
           ls -la output/valenced.apk
-          file output/valenced.apk
 
       - name: Package single APK
         if: inputs.publish == true || github.event_name == 'release'
@@ -253,7 +220,7 @@ jobs:
           cp keys/valenced.pk8 "package/signing.pk8"
           cp keys/valenced.der "package/signing.der"
 
-          printf 'Pre-patched Discord with Valenced\n=================================\n\nValence version: %s\nDiscord version: 352.6 - Alpha\nArchitecture: %s\n\nInstallation:\n  1. Extract valenced.apk from the archive\n  2. Install directly on your Android device:\n     adb install -r valenced.apk\n\n  Or copy the APK to your phone and open it with any file manager.\n\nSigning key:\n  - signing.pk8 / signing.der\n  - Keep these files! You need them to update the app later (same signing key required)\n  - If you lose them, you will need to uninstall and reinstall the app\n\nNotes:\n  - This installs alongside the official Discord app as "Valenced" (package: app.valenced)\n  - Valence version: %s\n' "${VALENCE_VERSION}" "${ARCH}" "${VALENCE_VERSION}" > "package/INSTALL.txt"
+          printf 'Pre-patched Discord with Valenced\n=================================\nValence version: %s\nDiscord version: 352.6 - Alpha\nArchitecture: %s\n\nInstallation:\n  1. Extract valenced.apk from the archive\n  2. Install directly on your Android device:\n      adb install -r valenced.apk\n\n  Or copy the APK to your phone and open it with any file manager.\n\nSigning key:\n  - signing.pk8 / signing.der\n  - Keep these files! You need them to update the app later (same signing key required)\n  - If you lose them, you will need to uninstall and reinstall the app\n\nNotes:\n  - This installs alongside the official Discord app as "Valenced" (package: app.valenced)\n' "${VALENCE_VERSION}" "${ARCH}" > "package/INSTALL.txt"
 
           cd package
           zip -r "../${ZIP_NAME}" .
