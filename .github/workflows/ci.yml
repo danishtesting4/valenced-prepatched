@@ -32,6 +32,7 @@ env:
   DISCORD_VERSION_CODE: '352206'
   BUNDLE_PUBLIC_KEY: 'db74a921941576bf70cc1c2777741fb202131a76758ffd3ffcc785f9e76ff119'
   RESEAM_VERSION: '0.30.1'
+  APKEDITOR_VERSION: '1.4.9'
   DISCORD_MIRROR: 'https://proxy.vd.ushie.dev'
   JAVA_VERSION: '21'
 
@@ -62,6 +63,25 @@ jobs:
           wget -q "https://cdn.reseam.app/engine/v${RESEAM_VERSION}/reseam-linux-x64" -O reseam
           chmod +x reseam
           ./reseam --version
+
+      - name: Setup Android SDK build-tools
+        run: |
+          # Ensure zipalign and apksigner are on PATH
+          BUILD_TOOLS_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"
+          if [ -d "${BUILD_TOOLS_DIR}" ]; then
+            LATEST_BT=$(ls "${BUILD_TOOLS_DIR}" | sort -V | tail -1)
+            echo "${BUILD_TOOLS_DIR}/${LATEST_BT}" >> $GITHUB_PATH
+            echo "Android build-tools: ${LATEST_BT}"
+          fi
+          echo "zipalign: $(which zipalign 2>/dev/null || echo 'NOT FOUND')"
+          echo "apksigner: $(which apksigner 2>/dev/null || echo 'NOT FOUND')"
+
+      - name: Download APKEditor
+        run: |
+          echo "Downloading APKEditor v${APKEDITOR_VERSION}..."
+          wget -q "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" -O APKEditor.jar
+          echo "APKEditor downloaded:"
+          ls -la APKEditor.jar
 
       - name: Download Discord APKs
         run: |
@@ -126,16 +146,54 @@ jobs:
 
           echo "Patched APKs:"
           ls -la output/
+          echo "Signing key files:"
+          ls -la keys/
+
+      - name: Merge split APKs into single APK
+        run: |
+          ARCH="${{ matrix.arch }}"
+          echo "Merging split APKs into a single APK for ${ARCH}..."
+
+          # Copy all split APKs to a merge directory
+          mkdir -p merge
+          cp output/base.apk merge/
+          cp "output/config.${ARCH}.apk" merge/
+          cp output/config.en.apk merge/
+          cp output/config.xxhdpi.apk merge/
+
+          # Merge splits using APKEditor
+          java -jar APKEditor.jar m -i merge/ -o output/merged.apk
+
+          echo "Merged APK:"
+          ls -la output/merged.apk
+
+      - name: Zipalign and sign the single APK
+        run: |
+          echo "Zipaligning and signing the merged APK..."
+
+          # Zipalign (force 4-byte alignment)
+          zipalign -f -4 output/merged.apk output/valenced.apk
+
+          # Sign with apksigner using the same key as Reseam
+          apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk
+
+          # Verify the signature
+          apksigner verify --verbose output/valenced.apk
+
+          echo "Signed single APK:"
+          ls -la output/valenced.apk
 
       - name: Verify output
         run: |
-          if [ -z "$(find output/ -name '*.apk' -print -quit)" ]; then
-            echo "Error: No APKs were produced!"
+          if [ ! -f output/valenced.apk ]; then
+            echo "Error: Single APK was not produced!"
             exit 1
           fi
           echo "Output verification passed."
+          ls -la output/valenced.apk
+          file output/valenced.apk
 
-      - name: Package APKs
+      - name: Package single APK
         if: inputs.publish == true || github.event_name == 'release'
         run: |
           ARCH="${{ matrix.arch }}"
@@ -143,24 +201,24 @@ jobs:
 
           mkdir -p package
 
-          cp output/base.apk "package/base.apk"
-          cp "output/config.${ARCH}.apk" "package/config.${ARCH}.apk"
-          cp output/config.en.apk "package/config.en.apk"
-          cp output/config.xxhdpi.apk "package/config.xxhdpi.apk"
-
+          cp output/valenced.apk "package/valenced.apk"
           cp keys/valenced.pk8 "package/signing.pk8"
           cp keys/valenced.der "package/signing.der"
 
-          cat > "package/INSTALL.txt" << 'EOF'
+          cat > "package/INSTALL.txt" << EOF
 Pre-patched Discord with Valenced
 =================================
 
-Installation:
-  1. Extract all APK files to the same folder
-  2. Use adb to install:
-     adb install-multiple -r *.apk
+Valence version: ${VALENCE_VERSION}
+Discord version: 352.6 - Alpha
+Architecture: ${ARCH}
 
-  Or use an APK installer app like "Split APKs Installer" or "APKMirror Installer"
+Installation:
+  1. Extract valenced.apk from the archive
+  2. Install directly on your Android device:
+     adb install -r valenced.apk
+
+  Or copy the APK to your phone and open it with any file manager.
 
 Signing key:
   - signing.pk8 / signing.der
@@ -169,8 +227,7 @@ Signing key:
 
 Notes:
   - This installs alongside the official Discord app as "Valenced" (package: app.valenced)
-  - Valence version: 1.2.3
-  - Discord version: 352.6 - Alpha
+  - Valence version: ${VALENCE_VERSION}
 EOF
 
           cd package
@@ -184,7 +241,7 @@ EOF
         with:
           name: patched-${{ matrix.arch }}
           path: |
-            output/*.apk
+            output/valenced.apk
             keys/valenced.pk8
             keys/valenced.der
           if-no-files-found: error

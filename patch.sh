@@ -4,10 +4,11 @@
 #
 # Usage:
 #   ./patch.sh                          # Uses default values
-#   VALENCE_VERSION=1.2.3 ARCH=arm64_v8i ./patch.sh  # With custom values
+#   VALENCE_VERSION=1.2.3 ARCH=arm64_v8a ./patch.sh  # With custom values
 #
 # Requirements:
-#   - Java 17+ on PATH (Java 21 recommended for LSPatch)
+#   - Java 17+ on PATH (Java 21 recommended for LSPatch and APKEditor)
+#   - Android SDK build-tools (zipalign, apksigner) on PATH
 #   - wget or curl
 #   - zip
 #   - Linux or macOS (Reseam CLI is not available for Windows)
@@ -44,6 +45,10 @@ VALENCE_BASE="https://github.com/Valenced/valenced/releases/download/${VALENCE_V
 RESEAM_VERSION="${RESEAM_VERSION:-0.30.1}"
 RESEAM_CLI="${RESEAM_CLI:-./reseam}"
 
+# APKEditor version (used to merge split APKs into a single APK)
+APKEDITOR_VERSION="${APKEDITOR_VERSION:-1.4.9}"
+APKEDITOR_JAR="${APKEDITOR_JAR:-./APKEditor.jar}"
+
 # Working and output directories
 WORKDIR="${WORKDIR:-./work}"
 OUTDIR="${OUTDIR:-./output}"
@@ -75,6 +80,7 @@ log "Valence version: ${VALENCE_VERSION}"
 log "Discord versionCode: ${DISCORD_VERSION_CODE}"
 log "Architecture: ${ARCH}"
 log "Reseam CLI version: ${RESEAM_VERSION}"
+log "APKEditor version: ${APKEDITOR_VERSION}"
 log ""
 
 mkdir -p "${WORKDIR}" "${OUTDIR}"
@@ -94,6 +100,17 @@ if [ ! -x "${RESEAM_CLI}" ]; then
 fi
 
 "${RESEAM_CLI}" --version
+log ""
+
+# ── Download APKEditor (for merging split APKs into single APK) ──────────────
+
+if [ ! -f "${APKEDITOR_JAR}" ]; then
+    log "Downloading APKEditor v${APKEDITOR_VERSION}..."
+    download "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" "${APKEDITOR_JAR}"
+    log "APKEditor downloaded: ${APKEDITOR_JAR}"
+else
+    log "APKEditor already downloaded: ${APKEDITOR_JAR}"
+fi
 log ""
 
 # ── Download Discord APKs ──────────────────────────────────────────────────
@@ -172,21 +189,60 @@ log "Patching Discord with Valenced..."
     --output-dir "${PATCH_OUTPUT}/"
 
 log ""
+log "=== Merging split APKs into single APK ==="
+log ""
+
+MERGE_DIR="${WORKDIR}/merge"
+rm -rf "${MERGE_DIR}"
+mkdir -p "${MERGE_DIR}"
+
+log "Copying split APKs to merge directory..."
+cp "${PATCH_OUTPUT}"/base.apk "${MERGE_DIR}/"
+cp "${PATCH_OUTPUT}"/"config.${ARCH}.apk" "${MERGE_DIR}/"
+cp "${PATCH_OUTPUT}"/config.en.apk "${MERGE_DIR}/"
+cp "${PATCH_OUTPUT}"/config.xxhdpi.apk "${MERGE_DIR}/"
+
+log "Merging with APKEditor..."
+SINGLE_APK="${WORKDIR}/valenced-${ARCH}.apk"
+java -jar "${APKEDITOR_JAR}" m -i "${MERGE_DIR}/" -o "${SINGLE_APK}"
+
+log "Merge complete: ${SINGLE_APK}"
+
+# ── Zipalign and sign the single APK ────────────────────────────────────────
+
+log ""
+log "=== Signing the single APK ==="
+log ""
+
+# Zipalign (force 4-byte alignment)
+ALIGNED_APK="${WORKDIR}/valenced-${ARCH}-aligned.apk"
+log "Zipaligning APK..."
+zipalign -f -4 "${SINGLE_APK}" "${ALIGNED_APK}"
+
+# Sign with apksigner using the same key as Reseam
+log "Signing APK with apksigner..."
+apksigner sign --key "${KEYS_DIR}/${SIGN_KEY_BASE}.pk8" --cert "${KEYS_DIR}/${SIGN_KEY_BASE}.der" "${ALIGNED_APK}"
+
+signed_apk="${WORKDIR}/valenced-${ARCH}-signed.apk"
+cp "${ALIGNED_APK}" "${signed_apk}"
+
+# Verify the signature
+log "Verifying signature..."
+apksigner verify "${signed_apk}"
+
+log ""
 log "=== Build Complete ==="
 log ""
 
 # ── Package output ─────────────────────────────────────────────────────────
 
-log "Packaging APKs..."
+log "Packaging single APK..."
 
 PACKAGE_DIR="${WORKDIR}/package"
 rm -rf "${PACKAGE_DIR}"
 mkdir -p "${PACKAGE_DIR}"
 
-cp "${PATCH_OUTPUT}"/base.apk "${PACKAGE_DIR}/base.apk"
-cp "${PATCH_OUTPUT}"/"config.${ARCH}.apk" "${PACKAGE_DIR}/config.${ARCH}.apk"
-cp "${PATCH_OUTPUT}"/config.en.apk "${PACKAGE_DIR}/config.en.apk"
-cp "${PATCH_OUTPUT}"/config.xxhdpi.apk "${PACKAGE_DIR}/config.xxhdpi.apk"
+cp "${signed_apk}" "${PACKAGE_DIR}/valenced.apk"
 
 # Copy signing keys for future updates
 cp "${KEYS_DIR}/${SIGN_KEY_BASE}.pk8" "${PACKAGE_DIR}/signing.pk8"
@@ -201,17 +257,17 @@ Valence version: ${VALENCE_VERSION}
 Discord version: 352.6 - Alpha
 Architecture: ${ARCH}
 
-Installation (via ADB):
-  adb install-multiple -r base.apk config.${ARCH}.apk config.en.apk config.xxhdpi.apk
+Installation:
+  1. Extract valenced.apk from the archive
+  2. Install directly on your Android device:
+     adb install -r valenced.apk
 
-Installation (via APK installer app):
-  1. Copy all APK files to your phone
-  2. Open an APK installer app (e.g., APKMirror Installer)
-  3. Select all APK files and install
+  Or copy the APK to your phone and open it with any file manager.
 
 Signing key:
   - signing.pk8 / signing.der
   - Keep these files! You need them to update the app later (same signing key required)
+  - If you lose them, you will need to uninstall and reinstall the app
 
 Notes:
   - This installs alongside the official Discord app as "Valenced" (package: app.valenced)
@@ -224,10 +280,10 @@ cd "${PACKAGE_DIR}"
 zip -r "${OUTDIR}/${ZIP_NAME}" .
 log ""
 
-log "Patched APKs:"
+log "Single APK package created:"
 ls -la "${OUTDIR}/${ZIP_NAME}"
 log ""
 log "Install with:"
-log "  adb install-multiple -r ${PACKAGE_DIR}/base.apk ${PACKAGE_DIR}/config.${ARCH}.apk ${PACKAGE_DIR}/config.en.apk ${PACKAGE_DIR}/config.xxhdpi.apk"
+log "  adb install -r ${PACKAGE_DIR}/valenced.apk"
 log ""
-log "Or extract the ZIP and use an APK installer app."
+log "Or extract the ZIP and install valenced.apk with any APK installer app."

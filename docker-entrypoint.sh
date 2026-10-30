@@ -7,6 +7,7 @@ DISCORD_VERSION_CODE="${DISCORD_VERSION_CODE:-352206}"
 BUNDLE_PUBLIC_KEY="${BUNDLE_PUBLIC_KEY:-db74a921941576bf70cc1c2777741fb202131a76758ffd3ffcc785f9e76ff119}"
 DISCORD_MIRROR="${DISCORD_MIRROR:-https://proxy.vd.ushie.dev}"
 OUTDIR="${OUTDIR:-/output}"
+APKEDITOR_JAR="/usr/local/bin/APKEditor.jar"
 
 echo "=== Valenced Pre-patched Discord Builder ==="
 echo "Valence version: ${VALENCE_VERSION}"
@@ -60,16 +61,37 @@ reseam patch downloads/discord/base.apk \
   --cert keys/valenced.der \
   --output-dir output/
 
+# Merge split APKs into single APK using APKEditor
+echo ""
+echo "Merging split APKs into a single APK..."
+mkdir -p merge
+cp output/base.apk merge/
+cp "output/config.${ARCH}.apk" merge/
+cp output/config.en.apk merge/
+cp output/config.xxhdpi.apk merge/
+
+java -jar "${APKEDITOR_JAR}" m -i merge/ -o output/merged.apk
+echo "Merge complete: output/merged.apk"
+
+# Zipalign and sign the single APK
+echo ""
+echo "Zipaligning and signing the merged APK..."
+zipalign -f -4 output/merged.apk output/valenced-aligned.apk
+apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced-aligned.apk
+
+# Copy final APK to output directory
+SINGLE_APK="valenced-${VALENCE_VERSION}-${ARCH}.apk"
+cp output/valenced-aligned.apk "${OUTDIR}/${SINGLE_APK}"
+cp keys/valenced.pk8 "${OUTDIR}/signing.pk8"
+cp keys/valenced.der "${OUTDIR}/signing.der"
+
 echo ""
 echo "=== Build complete ==="
 echo "Output files:"
-ls -la output/
+ls -la "${OUTDIR}/"
 echo ""
 echo "Signing key (keep for future updates):"
 ls -la keys/
-
-# Copy to output directory if mounted
-if [ -d "${OUTDIR}" ]; then
-    cp -v output/*.apk "${OUTDIR}/" 2>/dev/null || true
-    echo "APKs copied to ${OUTDIR}"
-fi
+echo ""
+echo "Single APK: ${OUTDIR}/${SINGLE_APK}"
+echo "Install with: adb install -r ${SINGLE_APK}"

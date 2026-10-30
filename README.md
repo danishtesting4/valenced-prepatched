@@ -1,13 +1,13 @@
 
 # Valenced Prepatched
 
-[![Build](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/build.yml/badge.svg)](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/build.yml)
-[![Release](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/release.yml/badge.svg)](https://github.com/danishtesting4/valenced-prepatched/releases/latest)
+[![Build](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/ci.yml/badge.svg)](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/ci.yml)
+[![Release](https://github.com/danishtesting4/valenced-prepatched/actions/workflows/ci.yml/badge.svg)](https://github.com/danishtesting4/valenced-prepatched/releases/latest)
 [![License](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://github.com/Valenced/valenced)
 
 [Valenced](https://valenced.app) brings themes and plugins to Discord on Android. This project makes getting started easier by providing **pre-patched Discord APKs with Valenced already installed**, so you don't have to set everything up through the Valenced Manager yourself.
 
-Download a release, extract the APK files, install them, and you're good to go.
+Download a release, extract the single APK, install it, and you're good to go.
 
 ## Before you install
 
@@ -20,22 +20,20 @@ A few things to keep in mind:
 ## Getting started
 
 1. Download the latest archive from the [Releases page](https://github.com/danishtesting4/valenced-prepatched/releases/latest).
-2. Extract the archive on your computer. Keep all the APK files together in the same folder.
-3. Install the APKs using one of the methods below.
+2. Extract the archive on your computer. You'll find a single `valenced.apk` file.
+3. Install the APK using one of the methods below.
 
    **Option A: ADB (recommended)**
 
-   Connect your Android device with USB debugging enabled, open a terminal in the folder containing the APKs, and run:
+   Connect your Android device with USB debugging enabled, open a terminal in the folder containing the APK, and run:
 
    ```bash
-   adb install-multiple -r *.apk
+   adb install -r valenced.apk
    ```
 
-   **Option B: Split APK installer**
+   **Option B: Direct installation**
 
-   You can also use [APKMirror Installer](https://play.google.com/store/apps/details?id=com.apkmirror.helper.filecryptor) or [Split APKs Installer](https://play.google.com/store/apps/details?id=apk.installer).
-
-   Open the installer, select all the extracted APK files, and follow the instructions.
+   Copy the APK to your phone, open it with a file manager, and tap to install. You may need to allow installation from unknown sources in your Android settings.
 
 4. Launch Valenced and log in. Open **Settings → Valenced** to explore the available plugins and themes.
 
@@ -56,10 +54,7 @@ Each release archive contains these files:
 
 | File | Description |
 |---|---|
-| `base.apk` | The main Discord APK, patched to load Valenced |
-| `config.{arch}.apk` | Native libraries for the selected CPU architecture |
-| `config.en.apk` | English language resources |
-| `config.xxhdpi.apk` | Resources for the app's display density |
+| `valenced.apk` | A single APK containing the patched Discord with Valenced installed |
 | `signing.pk8` / `signing.der` | Signing files used to sign builds and support future updates |
 | `INSTALL.txt` | Installation instructions |
 
@@ -75,28 +70,37 @@ The build uses the Valenced patch bundle with the following configuration:
 
 ## How it works
 
-The build takes the required Discord APKs and Valenced assets, applies the selected patches through Reseam, and packages the result into a release archive.
+The build takes the required Discord APKs and Valenced assets, applies the selected patches through Reseam, merges the split APKs into a single universal APK using APKEditor, and signs the result.
 
 ```text
-Discord APKs (352.6 Alpha, versionCode 352206)
+Discord split APKs (352.6 Alpha, versionCode 352206)
                  |
                  v
        Reseam patching process
                  ^
                  |
-       +---------+---------+
-       |                   |
- Valenced bundle      Xposed module
- (valenced.reseam)    (app-release.apk)
-       |                   |
-       +---------+---------+
+        +---------+---------+
+        |                   |
+  Valenced bundle      Xposed module
+  (valenced.reseam)    (app-release.apk)
+        |                   |
+        +---------+---------+
                  |
                  v
-       Pre-patched APK set
-          Package: app.valenced
+      Pre-patched split APKs
+       Package: app.valenced
                  |
                  v
-          Release archive
+      APKEditor merge + sign
+                 |
+                 v
+       Single universal APK  ──┐
+       Package: app.valenced  ──┤
+       Self-contained          ──┤
+                 |               │
+                 v               │
+      Release archive          │
+   (valenced.apk + signing.key) │
 ```
 
 ### Related projects
@@ -106,16 +110,18 @@ This repository relies on work maintained by other projects:
 - [Valenced](https://github.com/Valenced/valenced) — The core project, including its patch bundle and Android module.
 - [Valenced Manager](https://github.com/Valenced/valenced-manager) — The official installer and management app.
 - [Reseam](https://reseam.app) — The patching engine used to apply the bundle.
+- [APKEditor](https://github.com/REAndroid/APKEditor) — Used to merge split APKs into a single universal APK.
 
 Check those projects for their source code, documentation, and release history.
 
 ## Building locally
 
-Want to build the APKs yourself? You can use the build script or run the steps manually.
+Want to build the APK yourself? You can use the build script or run the steps manually.
 
 ### Requirements
 
-- **Java 17 or newer** (Java 21 is recommended for the relevant tooling).
+- **Java 21** (required for APKEditor and Reseam).
+- **Android SDK build-tools** (for `zipalign` and `apksigner`).
 - **Linux or macOS.** The Reseam CLI used by this project isn't available for Windows in this setup.
 - `wget` or `curl` for downloading files.
 - `zip` for packaging the output.
@@ -143,13 +149,15 @@ The script handles the build steps for you. Check its configuration if you need 
 
 If you prefer to run each step yourself, follow these instructions.
 
-**1. Download the Reseam CLI**
+**1. Download the Reseam CLI and APKEditor**
 
 For Linux x86-64:
 
 ```bash
 wget -q https://cdn.reseam.app/engine/v0.30.1/reseam-linux-x64 -O reseam
 chmod +x reseam
+
+wget -q https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar -O APKEditor.jar
 ```
 
 **2. Download the Discord APKs**
@@ -211,11 +219,32 @@ mkdir -p output
 
 Adjust the executable path if you placed `reseam` somewhere else. The APKs and Valenced assets must also be available at the paths specified by the command.
 
-**6. Install the result**
+**6. Merge split APKs into a single APK**
+
+Copy all patched APK files to a merge directory and run APKEditor:
 
 ```bash
-cd output
-adb install-multiple -r *.apk
+mkdir -p merge
+cp output/base.apk merge/
+cp output/config.arm64_v8a.apk merge/
+cp output/config.en.apk merge/
+cp output/config.xxhdpi.apk merge/
+
+java -jar ../APKEditor.jar m -i merge/ -o output/merged.apk
+```
+
+**7. Zipalign and sign the single APK**
+
+```bash
+zipalign -f -4 output/merged.apk output/valenced.apk
+apksigner sign --key signing.pk8 --cert signing.der output/valenced.apk
+apksigner verify output/valenced.apk
+```
+
+**8. Install the result**
+
+```bash
+adb install -r output/valenced.apk
 ```
 
 ### Docker build
@@ -228,7 +257,7 @@ mkdir -p output
 docker run --rm -v "$(pwd)/output:/output" valenced-prepatched
 ```
 
-The container's build configuration determines where the generated files are written. Make sure it uses `/output` for the mounted output directory.
+The container handles the full pipeline: downloading, patching, merging, and signing. The final single APK is written to the mounted output directory.
 
 ## GitHub Actions
 
@@ -238,15 +267,17 @@ GitHub Actions handles the build and release process, so you don't have to run e
 |---|---|
 | Push to `main` | Runs a CI build and uploads artifacts for inspection |
 | Pull request | Builds the project to check for errors |
-| Published GitHub Release | Builds the APKs and uploads the release archive |
+| Published GitHub Release | Builds the APK, merges splits, and uploads the release archive |
 | Manual dispatch | Starts a workflow run manually, with an optional `publish` flag |
 
 When a release is published, the workflow:
 
 1. Downloads the required Discord APKs and Valenced assets.
-2. Applies the configured patches using Reseam.
-3. Packages the resulting APKs and signing files into a ZIP archive.
-4. Uploads the archive to the GitHub Release.
+2. Applies the configured patches using Reseam, producing signed split APKs.
+3. Merges the split APKs into a single universal APK using APKEditor.
+4. Zipaligns and re-signs the single APK with the same signing key.
+5. Packages the APK and signing files into a ZIP archive.
+6. Uploads the archive to the GitHub Release.
 
 You can check the [Actions tab](https://github.com/danishtesting4/valenced-prepatched/actions) to see build results and logs.
 
@@ -257,18 +288,18 @@ When a new Valenced version becomes available, check whether the build configura
 1. Check the [Valenced releases](https://github.com/Valenced/valenced/releases).
 2. Update `VALENCE_VERSION` in the relevant workflow files and `patch.sh`.
 3. If the supported Discord version has changed, update `DISCORD_VERSION_CODE` as well.
-4. Run a build and verify that the APKs install and launch correctly before publishing.
+4. Run a build and verify that the APK installs and launches correctly before publishing.
 
 ### Updating an existing installation
 
 Android requires updates to use a compatible signing key. To update an existing installation:
 
-1. Download the new APK set from the [latest release](https://github.com/danishtesting4/valenced-prepatched/releases/latest).
+1. Download the new archive from the [latest release](https://github.com/danishtesting4/valenced-prepatched/releases/latest).
 2. Make sure the new build uses the same signing key as your existing installation.
-3. Install the APKs with:
+3. Install the APK with:
 
    ```bash
-   adb install-multiple -r *.apk
+   adb install -r valenced.apk
    ```
 
 The `-r` flag reinstalls the app while attempting to preserve its data.
@@ -279,9 +310,9 @@ The `-r` flag reinstalls the app while attempting to preserve its data.
 
 | Problem | What to try |
 |---|---|
-| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | The installed app and new APKs were signed with different keys. Use the original signing key or uninstall the old installation before reinstalling. |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | The installed app and new APK were signed with different keys. Use the original signing key or uninstall the old installation before reinstalling. |
 | `INSTALL_FAILED_CONFLICTING_PERMISSION` | Check for an existing installation or package conflict, then remove the conflicting app if necessary. |
-| The app crashes on startup | Check that you installed every required split APK and selected the correct architecture. Also verify that the Discord and Valenced versions are compatible. |
+| The app crashes on startup | Verify that you installed the correct APK for your device's architecture. Also check that the Discord and Valenced versions are compatible. |
 | Discord won't connect | Check your internet connection first. If the issue persists, try clearing Valenced's cache or data in Android Settings → Apps → Valenced. Clearing data may remove local app data. |
 | The build uses an incompatible version | Check the pinned Discord version and the Valenced version used by the release. Avoid updating Discord independently of the supported build. |
 
@@ -295,7 +326,7 @@ Valenced is made up of a few components that work together:
 
 The `valenced.reseam` bundle provides the patches and JavaScript functionality, while `app-release.apk` supplies the Android module that connects the native side to the JavaScript bundle.
 
-Reseam brings these pieces together and produces the patched APK set.
+Reseam applies these patches to the split APKs, and APKEditor then merges them into a single universal APK that works on any compatible device.
 
 ## License and attribution
 
@@ -306,5 +337,6 @@ This repository automates the process of downloading and combining assets from e
 - **Valenced:** [GPL-3.0](https://github.com/Valenced/valenced/blob/master/LICENSE)
 - **Valenced patches:** [AGPL-3.0](https://github.com/Valenced/valenced/blob/master/android/patches/LICENSE)
 - **Reseam:** [AGPL-3.0](https://reseam.app)
+- **APKEditor:** [Apache-2.0](https://github.com/REAndroid/APKEditor/blob/master/LICENSE)
 
 Check the upstream projects for the complete license terms applicable to their code and assets.

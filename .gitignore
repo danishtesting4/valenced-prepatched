@@ -4,12 +4,14 @@ downloads/
 download/
 keys/
 reseam
+APKEditor.jar
 *.pk8
 *.der
 *.apk
 
 # Release packages
 release-build/
+release-assets/
 *.zip
 
 # OS files
