@@ -182,8 +182,8 @@ jobs:
 
           echo "APKEditor exit code: ${MERGE_EXIT}"
           if [ ${MERGE_EXIT} -ne 0 ]; then
-            APKERROR=$(head -1 /tmp/apkeditor.log 2>/dev/null)
-            echo "::error::APKEditor merge failed (exit code ${MERGE_EXIT}): ${APKERROR}"
+            APKERROR=$(head -5 /tmp/apkeditor.log 2>/dev/null | tr '\n' ' | ')
+            echo "::error::APKEditor merge failed (exit ${MERGE_EXIT}): ${APKERROR}"
             exit ${MERGE_EXIT}
           fi
 
