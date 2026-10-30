@@ -171,32 +171,34 @@ jobs:
           # Show all output files from patch
           echo "=== Files in output/ ==="
           ls -la output/
+          ::notice::APK files in output/: $(ls output/*.apk 2>&1 || echo "none")"
 
-          # Copy all split APKs to a merge directory
+          # Copy all APK files to a merge directory
           mkdir -p merge
-          cp output/base.apk merge/ 2>&1 || echo "WARNING: output/base.apk not found!"
-          cp "output/config.${ARCH}.apk" merge/ 2>&1 || echo "WARNING: output/config.${ARCH}.apk not found!"
-          cp output/config.en.apk merge/ 2>&1 || echo "WARNING: output/config.en.apk not found!"
-          cp output/config.xxhdpi.apk merge/ 2>&1 || echo "WARNING: output/config.xxhdpi.apk not found!"
+          cp output/*.apk merge/ 2>&1 || echo "::error::No APK files found in output/"
+          echo "::notice::Files in merge/: $(ls merge/ 2>&1 || echo "empty")"
 
-          echo "=== Files in merge/ ==="
-          ls -la merge/
+          # Verify APKEditor works
+          echo "=== APKEditor version ==="
+          java -jar APKEditor.jar -v 2>&1 || echo "::error::APKEditor version check failed"
 
           # Merge splits using APKEditor with force flag
           echo "=== Running APKEditor merge ==="
-          java -jar APKEditor.jar m -f -i merge/ -o output/merged.apk
+          set +e
+          java -jar APKEditor.jar m -f -i merge/ -o output/merged.apk 2>&1
           MERGE_EXIT=$?
-          echo "APKEditor exit code: ${MERGE_EXIT}"
+          set -e
+          echo "::notice::APKEditor exit code: ${MERGE_EXIT}"
 
-          if [ ${MERGE_EXIT} -eq 0 ]; then
-            echo "Merged APK:"
-            ls -la output/merged.apk
-          else
-            echo "ERROR: APKEditor merge failed with exit code ${MERGE_EXIT}"
+          if [ ${MERGE_EXIT} -ne 0 ]; then
+            echo "::error::APKEditor merge failed with exit code ${MERGE_EXIT}"
             echo "Files in output/ after failed merge:"
             ls -la output/
             exit ${MERGE_EXIT}
           fi
+
+          echo "Merged APK:"
+          ls -la output/merged.apk
 
       - name: Zipalign and sign the single APK
         run: |
