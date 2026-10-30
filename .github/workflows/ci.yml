@@ -233,6 +233,7 @@ jobs:
             jar cf /tmp/merged_apk.jar . 2>&1 || true
             if [ -f /tmp/merged_apk.jar ]; then
               cp /tmp/merged_apk.jar ../output/merged.apk
+              cd ..
               echo "Manual merge via jar succeeded"
               echo "::notice::Manual zip merge succeeded via jar"
             else
