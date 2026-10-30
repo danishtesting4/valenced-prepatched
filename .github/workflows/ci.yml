@@ -225,27 +225,32 @@ jobs:
             # Remove old signature before repackaging
             rm -rf merge_temp/META-INF
 
-            # Repackage using jar (always available with JDK) as fallback
+            # Repackage into single APK
             cd merge_temp
             echo "Number of files to zip: $(ls -1 | wc -l)"
-            echo "Files:"
-            ls -la
-            jar cf /tmp/merged_apk.jar . 2>&1 || true
-            if [ -f /tmp/merged_apk.jar ]; then
-              cp /tmp/merged_apk.jar ../output/merged.apk
-              cd ..
-              echo "Manual merge via jar succeeded"
-              echo "::notice::Manual zip merge succeeded via jar"
+
+            # Try zip first (creates proper ZIP that zipalign can process)
+            set +e
+            zip -r -q -X ../output/merged.apk . 2>&1
+            ZIP_EXIT=$?
+            set -e
+
+            if [ ${ZIP_EXIT} -eq 0 ] && [ -f ../output/merged.apk ]; then
+              echo "::notice::Manual zip merge succeeded via zip"
             else
-              zip -r -q -X ../output/merged.apk . 2>&1 || echo "WARNING: zip command failed"
-              cd ..
-              if [ -f output/merged.apk ]; then
-                echo "::notice::Manual zip merge succeeded via zip"
+              echo "zip failed (exit ${ZIP_EXIT}), trying jar..."
+              rm -f /tmp/merged_apk.jar
+              jar cf /tmp/merged_apk.jar . 2>&1
+              if [ -f /tmp/merged_apk.jar ]; then
+                cp /tmp/merged_apk.jar ../output/merged.apk
+                echo "::notice::Manual zip merge succeeded via jar"
+                ZIP_EXIT=0
               else
-                echo "::error::Manual zip merge also failed!"
+                echo "::error::Manual zip merge failed!"
                 exit 1
               fi
             fi
+            cd ..
           else
             echo "APKEditor merge succeeded"
           fi
@@ -266,20 +271,24 @@ jobs:
           echo "Checking merged APK..."
           ls -la output/merged.apk
           file output/merged.apk
+          APK_FILE_SIZE=$(stat -c '%s' output/merged.apk 2>/dev/null || echo 'unknown')
+          echo "::notice::merged.apk size: ${APK_FILE_SIZE} bytes"
           echo "APK contents:"
           unzip -l output/merged.apk 2>&1 | head -30
+          UNZIP_TEST=$(unzip -t output/merged.apk 2>&1 | tail -5)
+          echo "::notice::unzip test result: ${UNZIP_TEST}"
 
           echo ""
           echo "Zipaligning and signing the merged APK..."
 
           set +e
           # Zipalign (force 4-byte alignment)
-          zipalign -f -4 output/merged.apk output/valenced.apk 2>&1
+          ZIPALIGN_OUTPUT=$(zipalign -f -4 output/merged.apk output/valenced.apk 2>&1)
           ZIPALIGN_EXIT=$?
           set -e
 
           if [ ${ZIPALIGN_EXIT} -ne 0 ]; then
-            echo "::error::zipalign failed (exit ${ZIPALIGN_EXIT})"
+            echo "::error::zipalign failed (exit ${ZIPALIGN_EXIT}). Output: ${ZIPALIGN_OUTPUT}"
             exit ${ZIPALIGN_EXIT}
           fi
           echo "zipalign succeeded"
