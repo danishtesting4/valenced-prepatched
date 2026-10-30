@@ -168,18 +168,35 @@ jobs:
           ARCH="${{ matrix.arch }}"
           echo "Merging split APKs into a single APK for ${ARCH}..."
 
+          # Show all output files from patch
+          echo "=== Files in output/ ==="
+          ls -la output/
+
           # Copy all split APKs to a merge directory
           mkdir -p merge
-          cp output/base.apk merge/
-          cp "output/config.${ARCH}.apk" merge/
-          cp output/config.en.apk merge/
-          cp output/config.xxhdpi.apk merge/
+          cp output/base.apk merge/ 2>&1 || echo "WARNING: output/base.apk not found!"
+          cp "output/config.${ARCH}.apk" merge/ 2>&1 || echo "WARNING: output/config.${ARCH}.apk not found!"
+          cp output/config.en.apk merge/ 2>&1 || echo "WARNING: output/config.en.apk not found!"
+          cp output/config.xxhdpi.apk merge/ 2>&1 || echo "WARNING: output/config.xxhdpi.apk not found!"
 
-          # Merge splits using APKEditor
-          java -jar APKEditor.jar m -i merge/ -o output/merged.apk
+          echo "=== Files in merge/ ==="
+          ls -la merge/
 
-          echo "Merged APK:"
-          ls -la output/merged.apk
+          # Merge splits using APKEditor with force flag
+          echo "=== Running APKEditor merge ==="
+          java -jar APKEditor.jar m -f -i merge/ -o output/merged.apk
+          MERGE_EXIT=$?
+          echo "APKEditor exit code: ${MERGE_EXIT}"
+
+          if [ ${MERGE_EXIT} -eq 0 ]; then
+            echo "Merged APK:"
+            ls -la output/merged.apk
+          else
+            echo "ERROR: APKEditor merge failed with exit code ${MERGE_EXIT}"
+            echo "Files in output/ after failed merge:"
+            ls -la output/
+            exit ${MERGE_EXIT}
+          fi
 
       - name: Zipalign and sign the single APK
         run: |
