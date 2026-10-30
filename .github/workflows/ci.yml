@@ -263,16 +263,49 @@ jobs:
 
       - name: Zipalign and sign the single APK
         run: |
+          echo "Checking merged APK..."
+          ls -la output/merged.apk
+          file output/merged.apk
+          echo "APK contents:"
+          unzip -l output/merged.apk 2>&1 | head -30
+
+          echo ""
           echo "Zipaligning and signing the merged APK..."
 
+          set +e
           # Zipalign (force 4-byte alignment)
-          zipalign -f -4 output/merged.apk output/valenced.apk
+          zipalign -f -4 output/merged.apk output/valenced.apk 2>&1
+          ZIPALIGN_EXIT=$?
+          set -e
 
+          if [ ${ZIPALIGN_EXIT} -ne 0 ]; then
+            echo "::error::zipalign failed (exit ${ZIPALIGN_EXIT})"
+            exit ${ZIPALIGN_EXIT}
+          fi
+          echo "zipalign succeeded"
+
+          set +e
           # Sign with apksigner using the same key as Reseam
-          apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk
+          apksigner sign --key keys/valenced.pk8 --cert keys/valenced.der output/valenced.apk 2>&1
+          APKSIGNER_EXIT=$?
+          set -e
 
+          if [ ${APKSIGNER_EXIT} -ne 0 ]; then
+            echo "::error::apksigner sign failed (exit ${APKSIGNER_EXIT})"
+            exit ${APKSIGNER_EXIT}
+          fi
+          echo "apksigner sign succeeded"
+
+          set +e
           # Verify the signature
-          apksigner verify --verbose output/valenced.apk
+          apksigner verify --verbose output/valenced.apk 2>&1
+          VERIFY_EXIT=$?
+          set -e
+
+          if [ ${VERIFY_EXIT} -ne 0 ]; then
+            echo "::error::apksigner verify failed (exit ${VERIFY_EXIT})"
+            exit ${VERIFY_EXIT}
+          fi
 
           echo "Signed single APK:"
           ls -la output/valenced.apk
