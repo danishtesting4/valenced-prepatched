@@ -89,10 +89,14 @@ jobs:
       - name: Download APKEditor
         run: |
           echo "Downloading APKEditor v${APKEDITOR_VERSION}..."
-          wget -q "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" -O APKEditor.jar
+          wget -q --show-progress "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" -O APKEditor.jar
           echo "APKEditor downloaded:"
           ls -la APKEditor.jar
-          java -jar APKEditor.jar -v
+          file APKEditor.jar
+          echo "Checking SHA256..."
+          echo "a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67 APKEditor.jar" | sha256sum -c -
+          echo "Running APKEditor version check (non-fatal)..."
+          java -jar APKEditor.jar -v 2>&1 || echo "APKEditor -v check returned non-zero exit code"
 
       - name: Download Discord APKs
         run: |
