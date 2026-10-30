@@ -308,12 +308,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ARCH="${{ matrix.arch }}"
-          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip"
+          ZIP_NAME="valenced-discord-${VALENCE_VERSION}-${ARCH}.zip
+
+          echo "Checking for ZIP file..."
+          ls -la "${ZIP_NAME}" 2>&1 || echo "ZIP file not found at repo root"
 
           TAG_NAME="${{ github.event.release.tag_name }}"
           if [ -z "$TAG_NAME" ]; then
             echo "Finding latest release..."
-            TAG_NAME=$(gh release view --limit 1 --json tagName --jq '.tagName' 2>/dev/null || echo "")
+            TAG_NAME=$(gh release view --limit 1 --json tagName --jq '.tagName' 2>&1)
+            echo "Found release: ${TAG_NAME}"
             if [ -z "$TAG_NAME" ]; then
               echo "Creating release..."
               TAG_NAME="${VALENCE_VERSION}"
@@ -322,4 +326,13 @@ jobs:
           fi
 
           echo "Uploading ${ZIP_NAME} to release ${TAG_NAME}..."
-          gh release upload "$TAG_NAME" "$ZIP_NAME" --clobber
+          set +e
+          UPLOAD_OUTPUT=$(gh release upload "$TAG_NAME" "$ZIP_NAME" --clobber 2>&1)
+          UPLOAD_EXIT=$?
+          set -e
+
+          if [ ${UPLOAD_EXIT} -ne 0 ]; then
+            echo "::error::Release upload failed (exit ${UPLOAD_EXIT}). Output: ${UPLOAD_OUTPUT}"
+            exit ${UPLOAD_EXIT}
+          fi
+          echo "Upload succeeded"
