@@ -182,8 +182,10 @@ jobs:
 
           echo "APKEditor exit code: ${MERGE_EXIT}"
           if [ ${MERGE_EXIT} -ne 0 ]; then
-            APKERROR=$(head -5 /tmp/apkeditor.log 2>/dev/null | tr '\n' ' | ')
-            echo "::error::APKEditor merge failed (exit ${MERGE_EXIT}): ${APKERROR}"
+            APK_COUNT=$(find merge/ -maxdepth 1 -name '*.apk' 2>/dev/null | wc -l | tr -d ' ')
+            echo "::notice::APK files in merge/: ${APK_COUNT}"
+            APKERROR=$(cat /tmp/apkeditor.log 2>/dev/null | tr '\n' ' | ')
+            echo "::error::APKEditor merge failed (exit ${MERGE_EXIT}). Files in merge/: ${APK_COUNT}. Log: ${APKERROR}"
             exit ${MERGE_EXIT}
           fi
 
