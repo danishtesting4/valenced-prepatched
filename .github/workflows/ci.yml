@@ -85,6 +85,8 @@ jobs:
           fi
           echo "zipalign: $(which zipalign 2>/dev/null || echo 'NOT FOUND')"
           echo "apksigner: $(which apksigner 2>/dev/null || echo 'NOT FOUND')"
+          echo "unzip: $(which unzip 2>/dev/null || echo 'NOT FOUND')"
+          echo "zip: $(which zip 2>/dev/null || echo 'NOT FOUND')"
 
       - name: Download APKEditor
         run: |
@@ -166,7 +168,7 @@ jobs:
 
           echo "=== Files in output/ ==="
           ls -la output/
-          FILES_OUTPUT=$(ls output/*.apk 2>/dev/null | xargs -I{} basename {} | tr '\n' ' ')
+          FILES_OUTPUT=$(ls -la output/*.apk 2>/dev/null | awk '{print $5 ":" $9}' | tr '\n' ', ')
           echo "::notice::Files in output/: ${FILES_OUTPUT}"
 
           mkdir -p merge
@@ -177,7 +179,7 @@ jobs:
           cp output/config.xxhdpi.apk merge/
           echo "=== Files in merge/ ==="
           ls -la merge/
-          FILES_MERGE=$(ls merge/*.apk 2>/dev/null | xargs -I{} basename {} | tr '\n' ' ')
+          FILES_MERGE=$(ls -la merge/*.apk 2>/dev/null | awk '{print $5 ":" $9}' | tr '\n' ', ')
           echo "::notice::Files in merge/: ${FILES_MERGE}"
 
           # Try APKEditor merge (with -clean-meta flag)
@@ -192,36 +194,57 @@ jobs:
 
           if [ ${MERGE_EXIT} -ne 0 ]; then
             echo "::warning::APKEditor merge failed (exit ${MERGE_EXIT}), trying manual zip merge"
-            APKERROR_LOG=$(head -5 /tmp/apkeditor.log 2>/dev/null | tr '\n' ' | ')
-            echo "::error::APKEditor failed. Output: ${APKERROR_LOG}"
 
             # Manual merge using zip: extract base.apk, then add config files without overwriting
             echo "=== Manual zip merge ==="
+            echo "pwd: $(pwd)"
+            echo "unzip: $(which unzip 2>&1)"
+            echo "zip: $(which zip 2>&1)"
+
             rm -rf merge_temp
             mkdir -p merge_temp
 
-            # Extract base APK first
-            unzip -o -q merge/base.apk -d merge_temp/
-            echo "Extracted base.apk"
+            # Extract base APK
+            echo "Extracting base.apk..."
+            ls -la merge/base.apk
+            unzip -o merge/base.apk -d merge_temp/ 2>&1 || echo "ERROR: unzip of base.apk failed"
+            echo "Files in merge_temp/ after base.apk:"
+            ls -la merge_temp/ | head -20
 
             # Add config APK files without overwriting base files
             for apk in merge/config.*.apk; do
               if [ -f "$apk" ]; then
-                echo "Extracting $(basename $apk) (without overwriting)..."
-                unzip -n -q "$apk" -d merge_temp/
+                echo "Extracting $(basename $apk)..."
+                unzip -n "$apk" -d merge_temp/ 2>&1 || echo "WARNING: unzip of $(basename $apk) failed"
               fi
             done
+
+            echo "Files in merge_temp/ after config APKs:"
+            ls -la merge_temp/ | head -20
 
             # Remove old signature before repackaging
             rm -rf merge_temp/META-INF
 
-            # Repackage into single APK
+            # Repackage using jar (always available with JDK) as fallback
             cd merge_temp
-            zip -r -q -X ../output/merged.apk .
-            cd ..
-
-            echo "Manual zip merge complete"
-            echo "::notice::Manual zip merge succeeded"
+            echo "Number of files to zip: $(ls -1 | wc -l)"
+            echo "Files:"
+            ls -la
+            jar cf /tmp/merged_apk.jar . 2>&1 || true
+            if [ -f /tmp/merged_apk.jar ]; then
+              cp /tmp/merged_apk.jar ../output/merged.apk
+              echo "Manual merge via jar succeeded"
+              echo "::notice::Manual zip merge succeeded via jar"
+            else
+              zip -r -q -X ../output/merged.apk . 2>&1 || echo "WARNING: zip command failed"
+              cd ..
+              if [ -f output/merged.apk ]; then
+                echo "::notice::Manual zip merge succeeded via zip"
+              else
+                echo "::error::Manual zip merge also failed!"
+                exit 1
+              fi
+            fi
           else
             echo "APKEditor merge succeeded"
           fi
