@@ -316,7 +316,7 @@ jobs:
           TAG_NAME="${{ github.event.release.tag_name }}"
           if [ -z "$TAG_NAME" ]; then
             echo "Finding latest release..."
-            TAG_NAME=$(gh release view --limit 1 --json tagName --jq '.tagName' 2>&1)
+            TAG_NAME=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>&1)
             echo "Found release: ${TAG_NAME}"
             if [ -z "$TAG_NAME" ]; then
               echo "Creating release..."
